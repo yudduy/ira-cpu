@@ -1,57 +1,50 @@
 # Climate Policy Credibility & Uncertainty Measure (CPU)
 
-## Overview
-This project constructs news-based, time-varying measures of climate policy uncertainty and credibility. The measures follow the logic of Baker, Bloom & Davis (2016), adapted to the climate-policy context, and are intended as mechanism/validation evidence for how policy credibility and stability shape private capital allocation in climate technology.
+## Quick Start
 
-## Conceptual Goal
-- Measure shared, market-level uncertainty and credibility of climate policy as reflected in authoritative public discourse.
-- Use the measures for validation and mechanism analysis (not as primary causal treatments).
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Approved News Sources
-Only use national or international outlets with high editorial credibility:
-- Financial Times
-- Wall Street Journal
-- New York Times
-- Washington Post
-- Reuters
-- Bloomberg
-- Politico (Energy & Climate sections)
-- The Economist
+2. **Configure API keys:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your LexisNexis and OpenAI credentials
+   ```
 
-(Optional if available: E&E News)
+3. **Run the tool:**
+   ```bash
+   python run.py
+   ```
 
-Do NOT use social media, blogs, firm websites, local newspapers, or advocacy-only sources.
+4. **Follow the interactive menu:**
+   - Option 1: Check status
+   - Option 2: Estimate API usage
+   - Option 3: Collect data
+   - Option 5: Build index
+   - Option 6: Export to CSV
 
-## Time Coverage
-- Period: January 2021 — most recent available month
-- Aggregation: Monthly
+## Files
 
-## Article Selection
-1. Identify climate-policy articles containing at least one term from each group below.
-	- Climate / Energy terms: climate, clean energy, renewable, decarbonization, carbon, EV, hydrogen, grid, battery, solar, wind
-	- Policy / Government terms: policy, regulation, tax credit, subsidy, grant, DOE, Treasury, IRS, Congress
+| File | Purpose |
+|------|---------|
+| `config.py` | All settings (keywords, dates, sources) |
+| `run.py` | Interactive menu (main entry point) |
+| `db.py` | SQLite database operations |
+| `api.py` | LexisNexis API client |
+| `collector.py` | Data collection pipeline |
+| `classifier.py` | LLM validation (GPT-5 Nano) |
+| `indexer.py` | CPU index calculation |
 
-2. Flag articles expressing uncertainty using uncertainty-language tokens such as: uncertain, uncertainty, unclear, delay, freeze, rollback, repeal, reversal, litigation, suspend, halt, block
+## API Quota
 
-## Index Construction
-For each month t compute:
+Stanford shares 24,000 searches / 1,200,000 documents per year.
+Always run "Estimate API usage" before collecting data.
 
-CPU_t = (# climate-policy articles with uncertainty language in month t) / (# all climate-policy articles in month t)
+## Modifying Keywords
 
-Normalize the index for interpretability (e.g., set mean = 100).
-
-## Sanity Checks (Required)
-- Event validation: verify spikes around major events (e.g., legislative/administrative freezes, legal challenges) and stability or decline post-major policy milestones (e.g., IRA).
-- Source robustness: recompute the index excluding one outlet at a time to assess sensitivity.
-- Placebo test: show CPU is not simply driven by overall climate news volume.
-
-## Deliverables
-- Monthly CPU time series (CSV)
-- Code repository for data collection and index construction (scripts + documentation)
-- 2–3 page summary memo describing sources, keyword lists, validation tests, and limitations
-
-## Key Principle
-We measure shared uncertainty and credibility of climate policy (not sentiment).
-
-## Contact / Notes
-For questions or to propose additional sources/keywords, please open an issue in the repository or contact the project lead.
+Edit the keyword lists in `config.py`:
+- `CLIMATE_TERMS`: Climate/energy topics
+- `POLICY_TERMS`: Policy/government terms
+- `UNCERTAINTY_TERMS`: Uncertainty language
