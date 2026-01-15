@@ -16,6 +16,18 @@ from typing import Optional
 import config
 
 
+# TODO: Refactor to use context manager pattern for better resource management
+# Current pattern opens/closes connection on each operation. Best practice is:
+#
+#   from contextlib import closing
+#   with closing(sqlite3.connect(DB_PATH)) as conn:
+#       with conn:  # handles transaction commit/rollback
+#           cursor = conn.cursor()
+#           ...
+#
+# This ensures connections are always closed, even on exceptions.
+# See: https://pyneng.readthedocs.io/en/latest/book/25_db/sqlite3_context_manager.html
+# See: https://blog.rtwilson.com/a-python-sqlite3-context-manager-gotcha/
 def get_connection() -> sqlite3.Connection:
     """Get database connection, creating file if needed."""
     Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)

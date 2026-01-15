@@ -10,7 +10,11 @@ A menu-driven interface for non-technical researchers.
 import sys
 import os
 
-# Ensure we can import our modules
+# TODO: Replace sys.path manipulation with proper package structure
+# Current approach is fragile and can cause import conflicts.
+# Better approach: Create pyproject.toml and install with `pip install -e .`
+# Then imports become: from cpu_index import db, config, etc.
+# See: https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import db

@@ -124,6 +124,10 @@ def collect_month(year: int, month: int, dry_run: bool = False) -> dict:
             "status": "complete",
         }
 
+    # TODO: Catch specific exceptions instead of broad Exception
+    # Best practice: Catch only expected errors to avoid masking bugs.
+    # Suggested: except (RuntimeError, requests.RequestException, requests.Timeout) as e:
+    # See: https://qodo.ai/blog/6-best-practices-for-python-exception-handling/
     except Exception as e:
         return {
             "month": month_str,

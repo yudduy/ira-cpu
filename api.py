@@ -19,6 +19,14 @@ import config
 
 load_dotenv()
 
+# =============================================================================
+# REQUEST CONFIGURATION
+# =============================================================================
+# Best practice: Always set timeouts to prevent indefinite hangs
+# See: https://python-requests.org/python-requests-timeout/
+# Format: (connect_timeout, read_timeout) in seconds
+REQUEST_TIMEOUT = (5, 30)  # 5s to connect, 30s to read
+
 
 # =============================================================================
 # AUTHENTICATION (from boilerplate.py)
@@ -55,7 +63,8 @@ def _refresh_token(clientid: str, clientsecret: str) -> str:
 
     response = requests.post(
         url, data=data, headers=headers,
-        auth=HTTPBasicAuth(clientid, clientsecret)
+        auth=HTTPBasicAuth(clientid, clientsecret),
+        timeout=REQUEST_TIMEOUT,
     )
 
     if response.status_code != 200:
@@ -67,7 +76,10 @@ def _refresh_token(clientid: str, clientsecret: str) -> str:
     token = results["access_token"]
     expires_in = results["expires_in"]
 
-    # Save to .env file
+    # TODO: Consider storing tokens in memory or a separate cache file instead of .env
+    # Writing to .env at runtime is a security risk if .env is version-controlled.
+    # Options: (1) module-level dict cache, (2) .cache/token.json (gitignored)
+    # See: https://betterstack.com/community/guides/scaling-python/python-timeouts/
     dotenv_file = find_dotenv()
     set_key(dotenv_file, "lntoken", token)
     set_key(dotenv_file, "lnexpire", str(int(time.time()) + expires_in))
@@ -178,7 +190,7 @@ def fetch_count(query: str, dry_run: bool = False) -> int:
     headers = {"Authorization": f"Bearer {token}"}
 
     time.sleep(config.REQUEST_DELAY_SECONDS)
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
     if response.status_code != 200:
         raise RuntimeError(f"API error {response.status_code}: {response.text}")
@@ -231,7 +243,7 @@ def fetch_metadata(
         headers = {"Authorization": f"Bearer {token}"}
 
         time.sleep(config.REQUEST_DELAY_SECONDS)
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
         if response.status_code != 200:
             raise RuntimeError(f"API error {response.status_code}: {response.text}")
