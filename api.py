@@ -1,27 +1,288 @@
 """
-API module for LexisNexis integration (stub for testing)
+LexisNexis API client for CPU Index Builder
 
-This module will be fully implemented in a subsequent task.
+Handles:
+- Authentication (token management)
+- Query building (keywords + date filters)
+- Pagination (fetching all results)
+- Rate limiting (protecting shared quota)
 """
 
+import os
+import time
+import requests
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
+from requests.auth import HTTPBasicAuth
+from dotenv import load_dotenv, find_dotenv, set_key
 
-def build_search_query(climate_terms=None, policy_terms=None,
-                       uncertainty_terms=None, start_date=None, end_date=None) -> str:
-    """Build a LexisNexis search query string."""
-    return "stub_query"
+import config
+
+load_dotenv()
+
+
+# =============================================================================
+# AUTHENTICATION (from boilerplate.py)
+# =============================================================================
+
+def get_token() -> str:
+    """
+    Get a valid API token. Refreshes automatically if expired.
+    Returns empty string if credentials not configured.
+    """
+    if "clientid" not in os.environ or "clientsecret" not in os.environ:
+        print("Error: LexisNexis credentials not found in .env file.")
+        print("Please add 'clientid' and 'clientsecret' to your .env file.")
+        return ""
+
+    clientid = os.environ["clientid"]
+    clientsecret = os.environ["clientsecret"]
+
+    # Check if we have a valid cached token
+    if "lnexpire" in os.environ:
+        token_expire = int(os.environ.get("lnexpire", 0))
+        if token_expire > int(time.time()):
+            return os.environ.get("lntoken", "")
+
+    # Need to get a new token
+    return _refresh_token(clientid, clientsecret)
+
+
+def _refresh_token(clientid: str, clientsecret: str) -> str:
+    """Request a new token from LexisNexis auth API."""
+    url = "https://auth-api.lexisnexis.com/oauth/v2/token"
+    data = "grant_type=client_credentials&scope=http%3a%2f%2foauth.lexisnexis.com%2fall"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    response = requests.post(
+        url, data=data, headers=headers,
+        auth=HTTPBasicAuth(clientid, clientsecret)
+    )
+
+    if response.status_code != 200:
+        print(f"Error getting token: {response.status_code}")
+        print(response.text)
+        return ""
+
+    results = response.json()
+    token = results["access_token"]
+    expires_in = results["expires_in"]
+
+    # Save to .env file
+    dotenv_file = find_dotenv()
+    set_key(dotenv_file, "lntoken", token)
+    set_key(dotenv_file, "lnexpire", str(int(time.time()) + expires_in))
+
+    # Reload environment
+    load_dotenv(override=True)
+
+    return token
+
+
+# =============================================================================
+# QUERY BUILDING
+# =============================================================================
+
+def build_search_query(
+    climate_terms: list,
+    policy_terms: list,
+    uncertainty_terms: list = None,
+    start_date: str = None,
+    end_date: str = None,
+) -> str:
+    """
+    Build a LexisNexis search query string.
+
+    Args:
+        climate_terms: List of climate/energy keywords (require at least 1)
+        policy_terms: List of policy keywords (require at least 1)
+        uncertainty_terms: Optional list of uncertainty keywords (for numerator)
+        start_date: Start of date range (YYYY-MM-DD)
+        end_date: End of date range (YYYY-MM-DD)
+
+    Returns:
+        URL-encoded search query string
+    """
+    # Build climate terms: (climate OR "clean+energy" OR renewable)
+    climate_part = " OR ".join([_format_term(t) for t in climate_terms])
+
+    # Build policy terms: (policy OR regulation OR Congress)
+    policy_part = " OR ".join([_format_term(t) for t in policy_terms])
+
+    # Combine: (climate terms) AND (policy terms)
+    query = f"({climate_part}) AND ({policy_part})"
+
+    # Add uncertainty terms if provided (for numerator query)
+    if uncertainty_terms:
+        uncertainty_part = " OR ".join([_format_term(t) for t in uncertainty_terms])
+        query += f" AND ({uncertainty_part})"
+
+    # Add date range
+    if start_date:
+        query += f" AND Date ge {start_date}"
+    if end_date:
+        query += f" AND Date le {end_date}"
+
+    return query
+
+
+def _format_term(term: str) -> str:
+    """Format a search term for LexisNexis query."""
+    if " " in term:
+        # Multi-word phrase: use quotes and plus signs
+        return '"' + term.replace(" ", "+") + '"'
+    return term
 
 
 def build_month_dates(year: int, month: int) -> tuple:
-    """Return (start_date, end_date) for a given month."""
+    """Get start and end dates for a given month."""
     import calendar
+
+    start_date = f"{year}-{month:02d}-01"
     last_day = calendar.monthrange(year, month)[1]
-    start_date = f"{year:04d}-{month:02d}-01"
-    end_date = f"{year:04d}-{month:02d}-{last_day:02d}"
+    end_date = f"{year}-{month:02d}-{last_day:02d}"
+
     return start_date, end_date
 
 
+# =============================================================================
+# API REQUESTS
+# =============================================================================
+
 def fetch_count(query: str, dry_run: bool = False) -> int:
-    """Fetch article count from LexisNexis API."""
+    """
+    Get total article count for a query (uses minimal quota).
+
+    Args:
+        query: Search query string
+        dry_run: If True, return fake count without API call
+
+    Returns:
+        Total number of matching articles
+    """
     if dry_run:
-        return 100  # Simulated count for testing
-    return 0
+        return 100  # Fake count for testing
+
+    token = get_token()
+    if not token:
+        raise RuntimeError("No API token available")
+
+    # Build URL with $top=1 to minimize data transfer
+    base_url = f"{config.LEXISNEXIS_BASE_URL}/News"
+    params = {
+        "$search": query,
+        "$top": 1,
+        "$orderby": "Date desc",
+    }
+    url = f"{base_url}?{urlencode(params)}"
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    time.sleep(config.REQUEST_DELAY_SECONDS)
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"API error {response.status_code}: {response.text}")
+
+    result = response.json()
+
+    # Total count is in @odata.count
+    return result.get("@odata.count", 0)
+
+
+def fetch_metadata(
+    query: str,
+    max_results: int = None,
+    dry_run: bool = False,
+) -> list:
+    """
+    Fetch article metadata (not full text).
+    Handles pagination automatically.
+
+    Args:
+        query: Search query string
+        max_results: Maximum articles to fetch (None = all)
+        dry_run: If True, return fake data without API call
+
+    Returns:
+        List of article dicts with metadata
+    """
+    if dry_run:
+        return [{"id": f"fake_{i}", "title": f"Fake Article {i}"} for i in range(10)]
+
+    token = get_token()
+    if not token:
+        raise RuntimeError("No API token available")
+
+    articles = []
+    skip = 0
+
+    while True:
+        # Build URL
+        base_url = f"{config.LEXISNEXIS_BASE_URL}/News"
+        params = {
+            "$search": query,
+            "$top": config.MAX_RESULTS_PER_QUERY,
+            "$skip": skip,
+            "$orderby": "Date desc",
+            "$expand": "Source",  # Include source metadata
+        }
+        url = f"{base_url}?{urlencode(params)}"
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        time.sleep(config.REQUEST_DELAY_SECONDS)
+        response = requests.get(url, headers=headers)
+
+        if response.status_code != 200:
+            raise RuntimeError(f"API error {response.status_code}: {response.text}")
+
+        result = response.json()
+        batch = result.get("value", [])
+
+        if not batch:
+            break
+
+        # Extract relevant fields
+        for item in batch:
+            articles.append({
+                "id": item.get("ResultId", ""),
+                "title": item.get("Title", ""),
+                "date": item.get("Date", ""),
+                "source": item.get("Source", {}).get("Name", ""),
+                "snippet": item.get("Overview", ""),
+            })
+
+        # Check if we have enough
+        if max_results and len(articles) >= max_results:
+            articles = articles[:max_results]
+            break
+
+        # Check if there are more results
+        skip += config.MAX_RESULTS_PER_QUERY
+        total = result.get("@odata.count", 0)
+        if skip >= total:
+            break
+
+    return articles
+
+
+def fetch_full_text(article_ids: list, dry_run: bool = False) -> list:
+    """
+    Fetch full text for specific articles via BatchNews endpoint.
+
+    WARNING: This uses the stricter BatchNews quota.
+    Use sparingly - only for LLM validation samples.
+
+    Args:
+        article_ids: List of article IDs to fetch
+        dry_run: If True, return fake data
+
+    Returns:
+        List of articles with full_text field
+    """
+    if dry_run:
+        return [{"id": aid, "full_text": "Fake article text..."} for aid in article_ids]
+
+    # TODO: Implement BatchNews full text retrieval
+    # For MVP, we can use snippets for LLM classification
+    raise NotImplementedError("Full text retrieval not yet implemented - use snippets")
