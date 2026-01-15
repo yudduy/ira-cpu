@@ -278,8 +278,9 @@ def build_index():
 
     print(f"\nEvent Validation: {validation.get('summary', 'N/A')}")
     for event in validation.get('events', []):
-        status_icon = "[OK]" if event.get('result') == 'PASS' else "[--]"
-        print(f"  {status_icon} {event['event']} ({event['date']}): {event.get('result', 'N/A')}")
+        event_result = event.get('result', 'N/A')
+        status_icon = "[OK]" if event_result == 'PASS' else "[--]"
+        print(f"  {status_icon} {event['event']} ({event['date']}): {event_result}")
 
 
 def export_csv():

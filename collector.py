@@ -165,10 +165,13 @@ def collect_all(dry_run: bool = False, progress_callback=None) -> dict:
         if result["status"] == "error":
             errors.append(result)
 
+    completed = sum(1 for r in results if r["status"] == "complete")
+    skipped = sum(1 for r in results if r["status"] == "skipped")
+
     return {
         "months_processed": len(results),
-        "months_complete": len([r for r in results if r["status"] == "complete"]),
-        "months_skipped": len([r for r in results if r["status"] == "skipped"]),
+        "months_complete": completed,
+        "months_skipped": skipped,
         "months_error": len(errors),
         "errors": errors,
         "results": results,

@@ -8,6 +8,7 @@ Handles all SQLite operations:
 - Storing final index values
 """
 
+import csv
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -242,18 +243,17 @@ def get_all_index_values() -> list:
     return rows
 
 
-def export_to_csv(output_path: str):
-    """Export index to CSV file."""
-    import csv
-
+def export_to_csv(output_path: str) -> int:
+    """Export index to CSV file. Returns number of rows exported."""
     values = get_all_index_values()
     if not values:
         raise ValueError("No index values to export. Run 'Build Index' first.")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+    fieldnames = ["month", "denominator", "numerator", "raw_ratio", "normalized"]
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["month", "denominator", "numerator", "raw_ratio", "normalized"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(values)
 

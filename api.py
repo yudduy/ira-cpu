@@ -10,10 +10,11 @@ Handles:
 
 import os
 import time
+from urllib.parse import urlencode
+
 import requests
-from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
+from dotenv import find_dotenv, load_dotenv, set_key
 from requests.auth import HTTPBasicAuth
-from dotenv import load_dotenv, find_dotenv, set_key
 
 import config
 
@@ -205,7 +206,7 @@ def fetch_metadata(
     query: str,
     max_results: int = None,
     dry_run: bool = False,
-) -> list:
+) -> list[dict]:
     """
     Fetch article metadata (not full text).
     Handles pagination automatically.
@@ -256,13 +257,14 @@ def fetch_metadata(
 
         # Extract relevant fields
         for item in batch:
-            articles.append({
+            article = {
                 "id": item.get("ResultId", ""),
                 "title": item.get("Title", ""),
                 "date": item.get("Date", ""),
                 "source": item.get("Source", {}).get("Name", ""),
                 "snippet": item.get("Overview", ""),
-            })
+            }
+            articles.append(article)
 
         # Check if we have enough
         if max_results and len(articles) >= max_results:

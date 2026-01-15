@@ -8,7 +8,6 @@ Cost: ~$0.01 per 100 articles (very cheap!)
 """
 
 import os
-import random
 from typing import Optional
 
 from pydantic import BaseModel
