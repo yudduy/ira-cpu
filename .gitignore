@@ -1,0 +1,12 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+
+# Data (too large for git)
+data/cpu.db
+data/exports/*.csv
+
+# IDE
+.vscode/
+.idea/
