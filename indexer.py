@@ -10,12 +10,11 @@ Normalized so mean = 100 for interpretability.
 """
 
 import statistics
-from typing import Optional
 
 import db
 
 
-def calculate_raw_index() -> list:
+def calculate_raw_index() -> list[dict]:
     """
     Calculate raw CPU ratio for each month from database.
 
@@ -51,10 +50,10 @@ def calculate_raw_index() -> list:
 
 
 def normalize_index(
-    raw_values: list,
+    raw_values: list[dict],
     base_start: str = None,
     base_end: str = None,
-) -> list:
+) -> list[dict]:
     """
     Normalize index so mean = 100 over base period.
 
@@ -186,12 +185,12 @@ def validate_against_events() -> dict:
             "result": "PASS" if passed else "FAIL",
         })
 
-    passed = sum(1 for r in results if r.get("result") == "PASS")
-    total = len([r for r in results if r.get("result") != "NO DATA"])
+    passed_count = sum(1 for r in results if r.get("result") == "PASS")
+    total_with_data = sum(1 for r in results if r.get("result") != "NO DATA")
 
     return {
         "events": results,
-        "summary": f"{passed}/{total} events validated",
+        "summary": f"{passed_count}/{total_with_data} events validated",
     }
 
 
@@ -199,8 +198,8 @@ def _get_prior_month(month: str) -> str:
     """Get the month before the given month."""
     year, mon = int(month[:4]), int(month[5:7])
     if mon == 1:
-        return f"{year-1}-12"
-    return f"{year}-{mon-1:02d}"
+        return f"{year - 1}-12"
+    return f"{year}-{mon - 1:02d}"
 
 
 def get_index_summary() -> dict:
