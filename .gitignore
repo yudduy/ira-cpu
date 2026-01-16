@@ -10,3 +10,6 @@ data/exports/*.csv
 # IDE
 .vscode/
 .idea/
+
+# Plans (local only)
+docs/plans/
