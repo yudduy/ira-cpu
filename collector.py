@@ -85,28 +85,27 @@ def collect_month(year: int, month: int, dry_run: bool = False) -> dict:
         # Get date range for this month
         start_date, end_date = api.build_month_dates(year, month)
 
+        # Build date filter (separate from search query)
+        date_filter = api.build_date_filter(start_date, end_date)
+
         # Build denominator query (climate + policy)
         denom_query = api.build_search_query(
             climate_terms=config.CLIMATE_TERMS,
             policy_terms=config.POLICY_TERMS,
-            start_date=start_date,
-            end_date=end_date,
         )
 
         # Fetch denominator count
-        denominator = api.fetch_count(denom_query, dry_run=dry_run)
+        denominator = api.fetch_count(denom_query, date_filter=date_filter, dry_run=dry_run)
 
         # Build numerator query (add uncertainty)
         numer_query = api.build_search_query(
             climate_terms=config.CLIMATE_TERMS,
             policy_terms=config.POLICY_TERMS,
             uncertainty_terms=config.UNCERTAINTY_TERMS,
-            start_date=start_date,
-            end_date=end_date,
         )
 
         # Fetch numerator count
-        numerator = api.fetch_count(numer_query, dry_run=dry_run)
+        numerator = api.fetch_count(numer_query, date_filter=date_filter, dry_run=dry_run)
 
         # Calculate ratio (handle division by zero)
         raw_ratio = numerator / denominator if denominator > 0 else 0.0

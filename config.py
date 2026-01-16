@@ -94,6 +94,13 @@ POLICY_TERMS = [
     "legislation",
     "Inflation Reduction Act",
     "IRA",
+    # OBBBA-related terms (One Big Beautiful Bill Act - 2025)
+    "OBBBA",
+    "One Big Beautiful Bill",
+    "Big Beautiful Bill",
+    "reconciliation",
+    "phase-out",
+    "phase out",
 ]
 
 
@@ -121,6 +128,15 @@ UNCERTAINTY_TERMS = [
     "suspend",
     "halt",
     "block",
+    # OBBBA-related uncertainty terms
+    "terminate",
+    "terminated",
+    "rescind",
+    "rescission",
+    "elimination",
+    "eliminated",
+    "cut",
+    "cuts",
 ]
 
 

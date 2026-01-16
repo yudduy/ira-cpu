@@ -99,23 +99,19 @@ def build_search_query(
     climate_terms: list,
     policy_terms: list,
     uncertainty_terms: list = None,
-    start_date: str = None,
-    end_date: str = None,
 ) -> str:
     """
-    Build a LexisNexis search query string.
+    Build a LexisNexis search query string (without date filter).
 
     Args:
         climate_terms: List of climate/energy keywords (require at least 1)
         policy_terms: List of policy keywords (require at least 1)
         uncertainty_terms: Optional list of uncertainty keywords (for numerator)
-        start_date: Start of date range (YYYY-MM-DD)
-        end_date: End of date range (YYYY-MM-DD)
 
     Returns:
-        URL-encoded search query string
+        Search query string (dates should be passed via $filter parameter)
     """
-    # Build climate terms: (climate OR "clean+energy" OR renewable)
+    # Build climate terms: (climate OR "clean energy" OR renewable)
     climate_part = " OR ".join([_format_term(t) for t in climate_terms])
 
     # Build policy terms: (policy OR regulation OR Congress)
@@ -129,13 +125,21 @@ def build_search_query(
         uncertainty_part = " OR ".join([_format_term(t) for t in uncertainty_terms])
         query += f" AND ({uncertainty_part})"
 
-    # Add date range
-    if start_date:
-        query += f" AND Date ge {start_date}"
-    if end_date:
-        query += f" AND Date le {end_date}"
-
     return query
+
+
+def build_date_filter(start_date: str, end_date: str) -> str:
+    """
+    Build a date filter for LexisNexis API ($filter parameter).
+
+    Args:
+        start_date: Start of date range (YYYY-MM-DD)
+        end_date: End of date range (YYYY-MM-DD)
+
+    Returns:
+        Filter string for $filter parameter
+    """
+    return f"Date ge {start_date} and Date le {end_date}"
 
 
 def _format_term(term: str) -> str:
@@ -161,12 +165,13 @@ def build_month_dates(year: int, month: int) -> tuple:
 # API REQUESTS
 # =============================================================================
 
-def fetch_count(query: str, dry_run: bool = False) -> int:
+def fetch_count(query: str, date_filter: str = None, dry_run: bool = False) -> int:
     """
     Get total article count for a query (uses minimal quota).
 
     Args:
         query: Search query string
+        date_filter: Date filter string (e.g., "Date ge 2024-01-01 and Date le 2024-01-31")
         dry_run: If True, return fake count without API call
 
     Returns:
@@ -186,6 +191,11 @@ def fetch_count(query: str, dry_run: bool = False) -> int:
         "$top": 1,
         "$orderby": "Date desc",
     }
+
+    # Add date filter as separate $filter parameter (not in $search)
+    if date_filter:
+        params["$filter"] = date_filter
+
     url = f"{base_url}?{urlencode(params)}"
 
     headers = {"Authorization": f"Bearer {token}"}
