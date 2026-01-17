@@ -2,11 +2,21 @@
 CPU Index calculation for CPU Index Builder
 
 Calculates the Climate Policy Uncertainty index following
-Baker, Bloom & Davis (2016) methodology:
+Baker, Bloom & Davis (2016) methodology, extended with
+asymmetric uncertainty decomposition from:
 
-CPU_t = (uncertainty articles) / (all climate-policy articles)
+- Segal, Shaliastovich & Yaron (2015) "Good and Bad Uncertainty"
+- Forni, Gambetti & Sala (2025) "Downside and Upside Uncertainty Shocks"
 
-Normalized so mean = 100 for interpretability.
+Three indices are calculated:
+- CPU (standard): neutral uncertainty
+- CPU-Down: downside/rollback uncertainty
+- CPU-Up: upside/expansion uncertainty
+
+Plus a directional balance metric:
+- CPU-Direction = (up - down) / (up + down), ranges -1 to +1
+
+All normalized so mean = 100 for interpretability.
 """
 
 import statistics
@@ -16,9 +26,13 @@ import db
 
 def calculate_raw_index() -> list[dict]:
     """
-    Calculate raw CPU ratio for each month from database.
+    Calculate raw CPU ratios for each month from database.
 
-    Returns list of dicts with month, denominator, numerator, raw_ratio
+    Returns list of dicts with:
+    - month, denominator
+    - numerator, raw_ratio (standard CPU)
+    - numerator_down, raw_ratio_down (CPU-Down)
+    - numerator_up, raw_ratio_up (CPU-Up)
     """
     progress = db.get_all_progress()
 
@@ -30,23 +44,75 @@ def calculate_raw_index() -> list[dict]:
             months_data[month] = {}
         months_data[month][record["query_type"]] = record["count"]
 
-    # Calculate ratios
+    # Calculate ratios for all index types
     results = []
     for month in sorted(months_data.keys()):
         data = months_data[month]
-        if "denominator" in data and "numerator" in data:
-            denom = data["denominator"]
-            numer = data["numerator"]
-            ratio = numer / denom if denom > 0 else 0.0
 
-            results.append({
-                "month": month,
-                "denominator": denom,
-                "numerator": numer,
-                "raw_ratio": ratio,
-            })
+        # Need at least denominator and standard numerator
+        if "denominator" not in data or "numerator" not in data:
+            continue
+
+        denom = data["denominator"]
+        numer = data["numerator"]
+        numer_down = data.get("numerator_down", 0)
+        numer_up = data.get("numerator_up", 0)
+
+        # Calculate ratios (handle division by zero)
+        ratio = numer / denom if denom > 0 else 0.0
+        ratio_down = numer_down / denom if denom > 0 else 0.0
+        ratio_up = numer_up / denom if denom > 0 else 0.0
+
+        results.append({
+            "month": month,
+            "denominator": denom,
+            # Standard CPU
+            "numerator": numer,
+            "raw_ratio": ratio,
+            # CPU-Down (downside uncertainty)
+            "numerator_down": numer_down,
+            "raw_ratio_down": ratio_down,
+            # CPU-Up (upside uncertainty)
+            "numerator_up": numer_up,
+            "raw_ratio_up": ratio_up,
+        })
 
     return results
+
+
+def _normalize_series(
+    values: list[float],
+    base_indices: list[int] = None,
+) -> list[float]:
+    """
+    Normalize a series so mean = 100 over base period.
+
+    Args:
+        values: Raw ratio values
+        base_indices: Indices to use for base period (None = all)
+
+    Returns:
+        Normalized values
+    """
+    if not values:
+        return []
+
+    # Get base period values
+    if base_indices:
+        base_values = [values[i] for i in base_indices if i < len(values)]
+    else:
+        base_values = values
+
+    # Calculate mean
+    if not base_values or all(v == 0 for v in base_values):
+        mean_ratio = statistics.mean(values) if values else 1.0
+    else:
+        mean_ratio = statistics.mean(base_values)
+
+    # Normalize: (raw / mean) * 100
+    if mean_ratio > 0:
+        return [(v / mean_ratio) * 100 for v in values]
+    return [0.0] * len(values)
 
 
 def normalize_index(
@@ -55,7 +121,10 @@ def normalize_index(
     base_end: str = None,
 ) -> list[dict]:
     """
-    Normalize index so mean = 100 over base period.
+    Normalize all indices so mean = 100 over base period.
+
+    Uses COMMON base period for all three indices to allow
+    direct comparison of levels (per research recommendation).
 
     Args:
         raw_values: List from calculate_raw_index()
@@ -63,39 +132,67 @@ def normalize_index(
         base_end: End of base period (None = use all)
 
     Returns:
-        Same list with added 'normalized' field
+        Same list with added normalized fields
     """
     if not raw_values:
         return []
 
-    # Filter to base period if specified
+    # Find base period indices
     if base_start and base_end:
-        base_values = [
-            v for v in raw_values
+        base_indices = [
+            i for i, v in enumerate(raw_values)
             if base_start <= v["month"] <= base_end
         ]
     else:
-        base_values = raw_values
+        base_indices = None  # Use all
 
-    # Calculate mean of raw ratios in base period
-    if not base_values:
-        mean_ratio = statistics.mean([v["raw_ratio"] for v in raw_values])
-    else:
-        mean_ratio = statistics.mean([v["raw_ratio"] for v in base_values])
+    # Extract raw ratio series
+    raw_ratios = [v["raw_ratio"] for v in raw_values]
 
-    # Normalize: (raw / mean) * 100
-    for v in raw_values:
-        if mean_ratio > 0:
-            v["normalized"] = (v["raw_ratio"] / mean_ratio) * 100
-        else:
-            v["normalized"] = 0.0
+    # Check if directional data is available (backward compatibility)
+    has_directional = "raw_ratio_down" in raw_values[0] if raw_values else False
+
+    if has_directional:
+        raw_ratios_down = [v["raw_ratio_down"] for v in raw_values]
+        raw_ratios_up = [v["raw_ratio_up"] for v in raw_values]
+
+    # Normalize each series
+    normalized = _normalize_series(raw_ratios, base_indices)
+
+    if has_directional:
+        normalized_down = _normalize_series(raw_ratios_down, base_indices)
+        normalized_up = _normalize_series(raw_ratios_up, base_indices)
+
+    # Add normalized values and calculate direction
+    for i, v in enumerate(raw_values):
+        v["normalized"] = normalized[i]
+
+        if has_directional:
+            v["normalized_down"] = normalized_down[i]
+            v["normalized_up"] = normalized_up[i]
+
+            # CPU-Direction: (up - down) / (up + down)
+            # Ranges from -1 (all downside) to +1 (all upside)
+            up_val = v.get("numerator_up", 0)
+            down_val = v.get("numerator_down", 0)
+            if up_val + down_val > 0:
+                v["cpu_direction"] = (up_val - down_val) / (up_val + down_val)
+            else:
+                v["cpu_direction"] = 0.0
 
     return raw_values
 
 
 def build_index(base_start: str = None, base_end: str = None) -> dict:
     """
-    Build complete CPU index from database.
+    Build complete CPU indices from database.
+
+    Calculates three indices:
+    - CPU (standard): general uncertainty
+    - CPU-Down: downside/rollback uncertainty
+    - CPU-Up: upside/expansion uncertainty
+
+    Plus CPU-Direction metric.
 
     Returns dict with metadata and series.
     """
@@ -109,9 +206,53 @@ def build_index(base_start: str = None, base_end: str = None) -> dict:
 
     normalized = normalize_index(raw, base_start, base_end)
 
-    # Calculate statistics
-    ratios = [v["raw_ratio"] for v in normalized]
-    norm_values = [v["normalized"] for v in normalized]
+    def calc_stats(values: list[float]) -> dict:
+        """Calculate mean and std for a series."""
+        return {
+            "mean": statistics.mean(values) if values else 0,
+            "std": statistics.stdev(values) if len(values) > 1 else 0,
+        }
+
+    # Check if directional data is available
+    has_directional = "normalized_down" in normalized[0] if normalized else False
+
+    # Calculate statistics for standard CPU (always available)
+    stats = {
+        "standard": {
+            "mean_raw": calc_stats([v["raw_ratio"] for v in normalized])["mean"],
+            "std_raw": calc_stats([v["raw_ratio"] for v in normalized])["std"],
+            "mean_norm": calc_stats([v["normalized"] for v in normalized])["mean"],
+            "std_norm": calc_stats([v["normalized"] for v in normalized])["std"],
+        }
+    }
+
+    # Calculate directional statistics only if available
+    if has_directional:
+        for key, ratio_key, norm_key in [
+            ("down", "raw_ratio_down", "normalized_down"),
+            ("up", "raw_ratio_up", "normalized_up"),
+        ]:
+            stats[key] = {
+                "mean_raw": calc_stats([v[ratio_key] for v in normalized])["mean"],
+                "std_raw": calc_stats([v[ratio_key] for v in normalized])["std"],
+                "mean_norm": calc_stats([v[norm_key] for v in normalized])["mean"],
+                "std_norm": calc_stats([v[norm_key] for v in normalized])["std"],
+            }
+
+        # CPU-Direction statistics
+        directions = [v["cpu_direction"] for v in normalized]
+        dir_stats = calc_stats(directions)
+        stats["direction"] = {
+            "mean": dir_stats["mean"],
+            "std": dir_stats["std"],
+            "min": min(directions) if directions else 0,
+            "max": max(directions) if directions else 0,
+        }
+    else:
+        # Default stats when directional data not available
+        stats["down"] = {"mean_raw": 0, "std_raw": 0, "mean_norm": 0, "std_norm": 0}
+        stats["up"] = {"mean_raw": 0, "std_raw": 0, "mean_norm": 0, "std_norm": 0}
+        stats["direction"] = {"mean": 0, "std": 0, "min": 0, "max": 0}
 
     # Save to database
     for v in normalized:
@@ -121,6 +262,13 @@ def build_index(base_start: str = None, base_end: str = None) -> dict:
             numerator=v["numerator"],
             raw_ratio=v["raw_ratio"],
             normalized=v["normalized"],
+            numerator_down=v.get("numerator_down"),
+            raw_ratio_down=v.get("raw_ratio_down"),
+            normalized_down=v.get("normalized_down"),
+            numerator_up=v.get("numerator_up"),
+            raw_ratio_up=v.get("raw_ratio_up"),
+            normalized_up=v.get("normalized_up"),
+            cpu_direction=v.get("cpu_direction"),
         )
 
     return {
@@ -129,9 +277,19 @@ def build_index(base_start: str = None, base_end: str = None) -> dict:
             "period": f"{normalized[0]['month']} to {normalized[-1]['month']}",
             "base_period": f"{base_start or 'all'} to {base_end or 'all'}",
             "num_months": len(normalized),
-            "mean_raw_ratio": statistics.mean(ratios),
-            "std_raw_ratio": statistics.stdev(ratios) if len(ratios) > 1 else 0,
-            "mean_normalized": statistics.mean(norm_values),  # Should be ~100
+            # Standard CPU stats
+            "mean_raw_ratio": stats["standard"]["mean_raw"],
+            "std_raw_ratio": stats["standard"]["std_raw"],
+            "mean_normalized": stats["standard"]["mean_norm"],
+            # CPU-Down stats
+            "mean_normalized_down": stats["down"]["mean_norm"],
+            "std_normalized_down": stats["down"]["std_norm"],
+            # CPU-Up stats
+            "mean_normalized_up": stats["up"]["mean_norm"],
+            "std_normalized_up": stats["up"]["std_norm"],
+            # Direction stats
+            "mean_direction": stats["direction"]["mean"],
+            "direction_range": f"{stats['direction']['min']:.2f} to {stats['direction']['max']:.2f}",
         },
         "series": normalized,
     }

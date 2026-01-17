@@ -311,6 +311,123 @@ class TestIndexValueOperations:
         assert months == sorted(months)
 
 
+class TestSchemaMigration:
+    """Tests for database schema migration on init_db()."""
+
+    def test_init_db_migrates_old_index_values_schema(self, temp_db_config):
+        """init_db should add missing columns to existing index_values table."""
+        import db
+
+        # Step 1: Create database with OLD schema (5 columns, no directional)
+        conn = db.get_connection()
+        cursor = conn.cursor()
+
+        # Create old-style index_values table without directional columns
+        cursor.execute("""
+            CREATE TABLE index_values (
+                month TEXT PRIMARY KEY,
+                denominator INTEGER NOT NULL,
+                numerator INTEGER NOT NULL,
+                raw_ratio REAL NOT NULL,
+                normalized REAL,
+                calculated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Insert some data in old format
+        cursor.execute("""
+            INSERT INTO index_values (month, denominator, numerator, raw_ratio, normalized)
+            VALUES ('2024-01', 100, 20, 0.2, 100.0)
+        """)
+        conn.commit()
+        conn.close()
+
+        # Step 2: Run init_db() - should migrate the table
+        db.init_db()
+
+        # Step 3: Verify new columns exist
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(index_values)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        # Should have all new directional columns
+        expected_new_columns = {
+            "numerator_down", "raw_ratio_down", "normalized_down",
+            "numerator_up", "raw_ratio_up", "normalized_up",
+            "cpu_direction"
+        }
+        for col in expected_new_columns:
+            assert col in columns, f"Missing column after migration: {col}"
+
+    def test_init_db_preserves_existing_data_after_migration(self, temp_db_config):
+        """init_db migration should not lose existing data."""
+        import db
+
+        # Create old schema with data
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE index_values (
+                month TEXT PRIMARY KEY,
+                denominator INTEGER NOT NULL,
+                numerator INTEGER NOT NULL,
+                raw_ratio REAL NOT NULL,
+                normalized REAL
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO index_values (month, denominator, numerator, raw_ratio, normalized)
+            VALUES ('2024-01', 150, 30, 0.2, 100.0)
+        """)
+        conn.commit()
+        conn.close()
+
+        # Run migration
+        db.init_db()
+
+        # Verify data preserved
+        values = db.get_all_index_values()
+        assert len(values) == 1
+        assert values[0]["month"] == "2024-01"
+        assert values[0]["denominator"] == 150
+        assert values[0]["numerator"] == 30
+
+    def test_init_db_migration_is_idempotent(self, temp_db_config):
+        """Running init_db multiple times should not cause errors."""
+        import db
+
+        # Create old schema
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE index_values (
+                month TEXT PRIMARY KEY,
+                denominator INTEGER NOT NULL,
+                numerator INTEGER NOT NULL,
+                raw_ratio REAL NOT NULL,
+                normalized REAL
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        # Run init_db multiple times - should not raise
+        db.init_db()
+        db.init_db()
+        db.init_db()
+
+        # Should still work
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(index_values)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert "cpu_direction" in columns
+
+
 class TestExportToCsv:
     """Tests for CSV export functionality."""
 
@@ -335,7 +452,14 @@ class TestExportToCsv:
             reader = csv.reader(f)
             headers = next(reader)
 
-        expected_headers = ["month", "denominator", "numerator", "raw_ratio", "normalized"]
+        # Now includes directional indices (CPU-Down, CPU-Up)
+        expected_headers = [
+            "month", "denominator",
+            "numerator", "raw_ratio", "normalized",
+            "numerator_down", "raw_ratio_down", "normalized_down",
+            "numerator_up", "raw_ratio_up", "normalized_up",
+            "cpu_direction",
+        ]
         assert headers == expected_headers
 
     def test_export_to_csv_raises_on_empty_db(self, initialized_db, tmp_path):

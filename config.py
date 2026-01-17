@@ -105,38 +105,180 @@ POLICY_TERMS = [
 
 
 # =============================================================================
-# UNCERTAINTY KEYWORDS
+# UNCERTAINTY KEYWORDS (General)
 # =============================================================================
-# For the NUMERATOR: articles that express uncertainty about policy.
-# These words suggest doubt, delay, or instability.
+# For the standard NUMERATOR: articles that express uncertainty about policy.
+# These words suggest doubt, delay, or instability (direction-neutral).
 
 UNCERTAINTY_TERMS = [
     "uncertain",
     "uncertainty",
     "unclear",
     "unpredictable",
-    "delay",
-    "delayed",
-    "freeze",
-    "frozen",
+    "unknown",
+    "question",
+    "doubt",
+    "risk",
+    "risky",
+]
+
+
+# =============================================================================
+# DOWNSIDE UNCERTAINTY KEYWORDS (CPU-Down)
+# =============================================================================
+# For CPU-Down index: articles suggesting policy WEAKENING or ROLLBACK.
+# Based on Segal et al. (2015) "bad uncertainty" and Forni et al. (2025)
+# "downside uncertainty shocks" methodology.
+#
+# These indicate potential policy deterioration, removal, or weakening.
+
+DOWNSIDE_TERMS = [
+    # Direct rollback/removal actions
     "rollback",
     "repeal",
+    "reverse",
     "reversal",
+    "revoke",
+    "rescind",
+    "rescission",
+    "withdraw",
+    "withdrawal",
+    "eliminate",
+    "elimination",
+    "eliminated",
+    "abolish",
+    "dismantle",
+    "gut",
+    "scrap",
+    "kill",
+    "end",
+    "expire",
+    "expiration",
+    # Weakening/reduction actions
+    "cut",
+    "cuts",
+    "reduce",
+    "reduction",
+    "weaken",
+    "undermine",
+    "water down",
+    "scale back",
+    "phase out",
+    "phase-out",
+    "wind down",
+    # Stoppage/delay actions
+    "halt",
+    "stop",
+    "freeze",
+    "frozen",
+    "pause",
+    "suspend",
+    "suspension",
+    "delay",
+    "delayed",
+    "block",
+    "blocked",
+    "obstruct",
+    # Legal/political challenges
     "litigation",
     "lawsuit",
     "challenge",
-    "suspend",
-    "halt",
-    "block",
-    # OBBBA-related uncertainty terms
+    "challenged",
+    "overturn",
+    "overturned",
+    "invalidate",
+    "strike down",
+    "struck down",
+    # Termination
     "terminate",
     "terminated",
-    "rescind",
-    "rescission",
-    "elimination",
-    "eliminated",
-    "cut",
-    "cuts",
+    "cancel",
+    "cancelled",
+    "canceled",
+    "abandon",
+    "abandoned",
+    "exit",
+]
+
+
+# =============================================================================
+# UPSIDE UNCERTAINTY KEYWORDS (CPU-Up)
+# =============================================================================
+# For CPU-Up index: articles suggesting policy STRENGTHENING or EXPANSION.
+# Based on Segal et al. (2015) "good uncertainty" methodology.
+#
+# These indicate potential policy enhancement, expansion, or new support.
+
+UPSIDE_TERMS = [
+    # Expansion/strengthening actions
+    "expand",
+    "expansion",
+    "extend",
+    "extension",
+    "strengthen",
+    "enhance",
+    "increase",
+    "boost",
+    "accelerate",
+    "ramp up",
+    "scale up",
+    # New support/investment
+    "invest",
+    "investment",
+    "fund",
+    "funding",
+    "support",
+    "commit",
+    "commitment",
+    "pledge",
+    "allocate",
+    "allocation",
+    # Policy creation/mandate
+    "mandate",
+    "require",
+    "requirement",
+    "introduce",
+    "launch",
+    "establish",
+    "create",
+    "implement",
+    "implementation",
+    "enact",
+    "pass",
+    "passed",
+    "adopt",
+    "adopted",
+    # Incentivization
+    "incentivize",
+    "subsidize",
+    "incentive",
+    "subsidy",
+    "credit",
+    "rebate",
+    "grant",
+    # Ambition/targets
+    "ambitious",
+    "aggressive",
+    "bold",
+    "target",
+    "goal",
+    # Transition terms (positive framing)
+    "transition",
+    "transform",
+    "transformation",
+    "modernize",
+    "upgrade",
+    "advance",
+    "progress",
+    # Net-zero/climate commitment
+    "net-zero",
+    "net zero",
+    "carbon neutral",
+    "carbon-neutral",
+    "decarbonize",
+    "decarbonization",
+    "clean energy",
+    "renewable",
 ]
 
 
