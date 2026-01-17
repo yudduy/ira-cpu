@@ -37,13 +37,45 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _migrate_index_values_table(cursor):
+    """Add missing columns to index_values table if it exists."""
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='index_values'"
+    )
+    if cursor.fetchone() is None:
+        return
+
+    cursor.execute("PRAGMA table_info(index_values)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+
+    new_columns = [
+        ("numerator_down", "INTEGER"),
+        ("raw_ratio_down", "REAL"),
+        ("normalized_down", "REAL"),
+        ("numerator_up", "INTEGER"),
+        ("raw_ratio_up", "REAL"),
+        ("normalized_up", "REAL"),
+        ("cpu_direction", "REAL"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in existing_cols:
+            cursor.execute(
+                f"ALTER TABLE index_values ADD COLUMN {col_name} {col_type}"
+            )
+
+
 def init_db():
     """
     Create all tables if they don't exist.
+    Also migrates existing tables to add new columns if needed.
     Safe to call multiple times.
     """
     conn = get_connection()
     cursor = conn.cursor()
+
+    # Migrate existing index_values table if it exists with old schema
+    _migrate_index_values_table(cursor)
 
     # Articles table - stores article metadata
     cursor.execute("""
@@ -84,14 +116,26 @@ def init_db():
         )
     """)
 
-    # Index values table - final CPU index
+    # Index values table - final CPU indices (standard + directional)
+    # Based on Segal, Shaliastovich & Yaron (2015) good/bad uncertainty methodology
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS index_values (
             month TEXT PRIMARY KEY,
             denominator INTEGER NOT NULL,
+            -- Standard CPU (backward compatible)
             numerator INTEGER NOT NULL,
             raw_ratio REAL NOT NULL,
             normalized REAL,
+            -- CPU-Down (downside/rollback uncertainty)
+            numerator_down INTEGER,
+            raw_ratio_down REAL,
+            normalized_down REAL,
+            -- CPU-Up (upside/expansion uncertainty)
+            numerator_up INTEGER,
+            raw_ratio_up REAL,
+            normalized_up REAL,
+            -- Directional balance: (up - down) / (up + down), ranges -1 to +1
+            cpu_direction REAL,
             calculated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -101,10 +145,7 @@ def init_db():
 
 
 def save_month_count(month: str, query_type: str, count: int):
-    """
-    Save the article count for a month.
-    query_type: 'denominator' or 'numerator'
-    """
+    """Save the article count for a month and query type."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -149,19 +190,43 @@ def get_all_progress() -> list:
 
 
 def get_completed_months() -> set:
-    """Get set of months where BOTH denominator and numerator are collected."""
+    """
+    Get set of months where ALL required query types are collected.
+
+    For full directional analysis, requires 4 query types:
+    - denominator: all climate-policy articles
+    - numerator: standard uncertainty (for backward-compatible CPU)
+    - numerator_down: downside uncertainty (for CPU-Down)
+    - numerator_up: upside uncertainty (for CPU-Up)
+
+    For backward compatibility, also accepts months with just 2 types
+    (denominator + numerator) for standard CPU calculation.
+    """
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Get months with all 4 query types (full directional data)
     cursor.execute("""
         SELECT month FROM progress
         GROUP BY month
+        HAVING COUNT(DISTINCT query_type) >= 4
+    """)
+    full_months = {row["month"] for row in cursor.fetchall()}
+
+    # Also get months with legacy 2 query types (denominator + numerator)
+    # These can still be used for standard CPU calculation
+    cursor.execute("""
+        SELECT month FROM progress
+        WHERE query_type IN ('denominator', 'numerator')
+        GROUP BY month
         HAVING COUNT(DISTINCT query_type) = 2
     """)
+    legacy_months = {row["month"] for row in cursor.fetchall()}
 
-    months = {row["month"] for row in cursor.fetchall()}
     conn.close()
-    return months
+
+    # Return union of both sets
+    return full_months | legacy_months
 
 
 def save_article(article: dict):
@@ -211,29 +276,58 @@ def save_classification(article_id: str, is_climate_policy: bool,
     conn.close()
 
 
-def save_index_value(month: str, denominator: int, numerator: int,
-                     raw_ratio: float, normalized: float = None):
-    """Save calculated index value for a month."""
+def save_index_value(
+    month: str,
+    denominator: int,
+    numerator: int,
+    raw_ratio: float,
+    normalized: float = None,
+    numerator_down: int = None,
+    raw_ratio_down: float = None,
+    normalized_down: float = None,
+    numerator_up: int = None,
+    raw_ratio_up: float = None,
+    normalized_up: float = None,
+    cpu_direction: float = None,
+):
+    """
+    Save calculated index values for a month.
+
+    Stores both standard CPU and directional indices (CPU-Down, CPU-Up).
+    Based on Segal, Shaliastovich & Yaron (2015) good/bad uncertainty methodology.
+    """
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT OR REPLACE INTO index_values
-        (month, denominator, numerator, raw_ratio, normalized, calculated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (month, denominator, numerator, raw_ratio, normalized, datetime.now().isoformat()))
+        (month, denominator, numerator, raw_ratio, normalized,
+         numerator_down, raw_ratio_down, normalized_down,
+         numerator_up, raw_ratio_up, normalized_up,
+         cpu_direction, calculated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        month, denominator, numerator, raw_ratio, normalized,
+        numerator_down, raw_ratio_down, normalized_down,
+        numerator_up, raw_ratio_up, normalized_up,
+        cpu_direction, datetime.now().isoformat()
+    ))
 
     conn.commit()
     conn.close()
 
 
 def get_all_index_values() -> list:
-    """Get all index values for export."""
+    """Get all index values for export (includes directional indices)."""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT month, denominator, numerator, raw_ratio, normalized
+        SELECT month, denominator,
+               numerator, raw_ratio, normalized,
+               numerator_down, raw_ratio_down, normalized_down,
+               numerator_up, raw_ratio_up, normalized_up,
+               cpu_direction
         FROM index_values
         ORDER BY month
     """)
@@ -244,14 +338,28 @@ def get_all_index_values() -> list:
 
 
 def export_to_csv(output_path: str) -> int:
-    """Export index to CSV file. Returns number of rows exported."""
+    """
+    Export index to CSV file. Returns number of rows exported.
+
+    Includes all indices:
+    - Standard CPU (normalized)
+    - CPU-Down (normalized_down) - downside/rollback uncertainty
+    - CPU-Up (normalized_up) - upside/expansion uncertainty
+    - CPU-Direction - balance between up and down
+    """
     values = get_all_index_values()
     if not values:
         raise ValueError("No index values to export. Run 'Build Index' first.")
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    fieldnames = ["month", "denominator", "numerator", "raw_ratio", "normalized"]
+    fieldnames = [
+        "month", "denominator",
+        "numerator", "raw_ratio", "normalized",
+        "numerator_down", "raw_ratio_down", "normalized_down",
+        "numerator_up", "raw_ratio_up", "normalized_up",
+        "cpu_direction",
+    ]
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

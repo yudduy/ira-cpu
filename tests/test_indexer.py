@@ -338,3 +338,63 @@ class TestGetIndexSummary:
         assert result["mean"] == 100.0
         assert result["min"] == 80.0
         assert result["max"] == 120.0
+
+
+class TestLegacyDataHandling:
+    """Tests for handling legacy data without directional fields."""
+
+    def test_build_index_with_legacy_data(self, initialized_db):
+        """build_index should succeed with legacy 2-query data (no directional)."""
+        import indexer
+        import db
+
+        # Add legacy data with only denominator and numerator (no down/up)
+        db.save_month_count("2024-01", "denominator", 150)
+        db.save_month_count("2024-01", "numerator", 30)
+        db.save_month_count("2024-02", "denominator", 160)
+        db.save_month_count("2024-02", "numerator", 40)
+
+        # Should not raise KeyError
+        result = indexer.build_index()
+
+        assert result["status"] == "success"
+        assert result["metadata"]["num_months"] == 2
+
+    def test_build_index_metadata_without_directional(self, initialized_db):
+        """build_index metadata should handle missing directional stats gracefully."""
+        import indexer
+        import db
+
+        # Legacy data without directional queries
+        db.save_month_count("2024-01", "denominator", 100)
+        db.save_month_count("2024-01", "numerator", 20)
+
+        result = indexer.build_index()
+
+        # Standard metadata should exist
+        assert "mean_raw_ratio" in result["metadata"]
+        assert "mean_normalized" in result["metadata"]
+
+        # Directional metadata should exist but with zero values
+        assert "mean_normalized_down" in result["metadata"]
+        assert "mean_normalized_up" in result["metadata"]
+        # With no directional data, these should be 0 or NaN-safe
+        assert result["metadata"]["mean_normalized_down"] is not None
+
+    def test_normalize_index_without_directional_fields(self):
+        """normalize_index should handle data without directional fields."""
+        import indexer
+
+        # Raw data from legacy format (no raw_ratio_down/up)
+        raw = [
+            {"month": "2024-01", "raw_ratio": 0.20},
+            {"month": "2024-02", "raw_ratio": 0.25},
+        ]
+
+        # Should not raise KeyError
+        result = indexer.normalize_index(raw)
+
+        assert len(result) == 2
+        assert "normalized" in result[0]
+        # Should not have directional fields
+        assert "normalized_down" not in result[0]

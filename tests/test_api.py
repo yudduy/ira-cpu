@@ -49,19 +49,22 @@ class TestQueryBuilding:
         assert "uncertain" in query
         assert "delay" in query
 
-    def test_build_search_query_with_dates(self):
-        """build_search_query should include date filters."""
+    def test_build_search_query_with_direction_terms(self):
+        """build_search_query should include direction terms for asymmetric indices."""
         import api
 
         query = api.build_search_query(
             climate_terms=["climate"],
             policy_terms=["policy"],
-            start_date="2024-01-01",
-            end_date="2024-01-31"
+            uncertainty_terms=["uncertain"],
+            direction_terms=["rollback", "repeal"]
         )
 
-        assert "Date ge 2024-01-01" in query
-        assert "Date le 2024-01-31" in query
+        # Should have all four term groups
+        assert "climate" in query
+        assert "policy" in query
+        assert "uncertain" in query
+        assert "rollback" in query or "repeal" in query
 
     def test_build_search_query_multiword_terms(self):
         """build_search_query should quote multi-word terms."""

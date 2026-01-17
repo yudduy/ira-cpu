@@ -128,11 +128,38 @@ class TestKeywordConfiguration:
         assert len(config.UNCERTAINTY_TERMS) > 0
 
     def test_uncertainty_terms_has_key_words(self):
-        """UNCERTAINTY_TERMS should contain uncertainty indicators."""
-        expected = ["uncertain", "delay", "rollback"]
+        """UNCERTAINTY_TERMS should contain core uncertainty indicators."""
+        # Core uncertainty terms (direction-neutral)
+        expected = ["uncertain", "risk", "unclear"]
         for keyword in expected:
             assert any(keyword in term.lower() for term in config.UNCERTAINTY_TERMS), \
                 f"Missing uncertainty term: {keyword}"
+
+    def test_downside_terms_exists(self):
+        """DOWNSIDE_TERMS constant should be defined for CPU-Down index."""
+        assert hasattr(config, "DOWNSIDE_TERMS")
+        assert isinstance(config.DOWNSIDE_TERMS, list)
+        assert len(config.DOWNSIDE_TERMS) > 0
+
+    def test_downside_terms_has_key_words(self):
+        """DOWNSIDE_TERMS should contain rollback/negative indicators."""
+        expected = ["rollback", "repeal", "delay", "cut"]
+        for keyword in expected:
+            assert any(keyword in term.lower() for term in config.DOWNSIDE_TERMS), \
+                f"Missing downside term: {keyword}"
+
+    def test_upside_terms_exists(self):
+        """UPSIDE_TERMS constant should be defined for CPU-Up index."""
+        assert hasattr(config, "UPSIDE_TERMS")
+        assert isinstance(config.UPSIDE_TERMS, list)
+        assert len(config.UPSIDE_TERMS) > 0
+
+    def test_upside_terms_has_key_words(self):
+        """UPSIDE_TERMS should contain expansion/positive indicators."""
+        expected = ["expand", "invest", "strengthen"]
+        for keyword in expected:
+            assert any(keyword in term.lower() for term in config.UPSIDE_TERMS), \
+                f"Missing upside term: {keyword}"
 
 
 class TestLLMConfiguration:

@@ -99,6 +99,7 @@ def build_search_query(
     climate_terms: list,
     policy_terms: list,
     uncertainty_terms: list = None,
+    direction_terms: list = None,
 ) -> str:
     """
     Build a LexisNexis search query string (without date filter).
@@ -107,9 +108,19 @@ def build_search_query(
         climate_terms: List of climate/energy keywords (require at least 1)
         policy_terms: List of policy keywords (require at least 1)
         uncertainty_terms: Optional list of uncertainty keywords (for numerator)
+        direction_terms: Optional list of directional keywords for asymmetric indices
+                        (DOWNSIDE_TERMS for CPU-Down, UPSIDE_TERMS for CPU-Up)
 
     Returns:
         Search query string (dates should be passed via $filter parameter)
+
+    Query Structure:
+        - Denominator: (climate) AND (policy)
+        - Numerator (standard): (climate) AND (policy) AND (uncertainty)
+        - Numerator Down: (climate) AND (policy) AND (uncertainty) AND (downside)
+        - Numerator Up: (climate) AND (policy) AND (uncertainty) AND (upside)
+
+    Based on Segal, Shaliastovich & Yaron (2015) good/bad uncertainty methodology.
     """
     # Build climate terms: (climate OR "clean energy" OR renewable)
     climate_part = " OR ".join([_format_term(t) for t in climate_terms])
@@ -124,6 +135,11 @@ def build_search_query(
     if uncertainty_terms:
         uncertainty_part = " OR ".join([_format_term(t) for t in uncertainty_terms])
         query += f" AND ({uncertainty_part})"
+
+    # Add direction terms if provided (for CPU-Down or CPU-Up)
+    if direction_terms:
+        direction_part = " OR ".join([_format_term(t) for t in direction_terms])
+        query += f" AND ({direction_part})"
 
     return query
 

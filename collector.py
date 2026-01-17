@@ -49,8 +49,12 @@ def estimate_api_usage() -> dict:
     incomplete = get_incomplete_months()
     num_months = len(incomplete)
 
-    # 2 searches per month (denominator + numerator)
-    searches = num_months * 2
+    # 4 searches per month:
+    # 1. denominator (climate + policy)
+    # 2. numerator (climate + policy + uncertainty) - standard CPU
+    # 3. numerator_down (climate + policy + uncertainty + downside) - CPU-Down
+    # 4. numerator_up (climate + policy + uncertainty + upside) - CPU-Up
+    searches = num_months * 4
 
     return {
         "months": num_months,
@@ -64,11 +68,21 @@ def collect_month(year: int, month: int, dry_run: bool = False) -> dict:
     """
     Collect data for a single month.
 
+    Collects four counts for the asymmetric uncertainty framework:
+    - denominator: all climate-policy articles
+    - numerator: articles with general uncertainty language (standard CPU)
+    - numerator_down: articles with downside/rollback uncertainty (CPU-Down)
+    - numerator_up: articles with upside/expansion uncertainty (CPU-Up)
+
+    Based on Segal, Shaliastovich & Yaron (2015) "good/bad uncertainty" and
+    Forni, Gambetti & Sala (2025) "downside/upside uncertainty shocks".
+
     Returns dict with:
     - month: "YYYY-MM"
     - denominator: count of all climate-policy articles
     - numerator: count of articles with uncertainty language
-    - raw_ratio: numerator / denominator
+    - numerator_down: count with downside uncertainty keywords
+    - numerator_up: count with upside uncertainty keywords
     - status: "complete", "skipped", or "error"
     """
     month_str = f"{year:04d}-{month:02d}"
@@ -85,41 +99,43 @@ def collect_month(year: int, month: int, dry_run: bool = False) -> dict:
         # Get date range for this month
         start_date, end_date = api.build_month_dates(year, month)
 
-        # Build date filter (separate from search query)
         date_filter = api.build_date_filter(start_date, end_date)
 
-        # Build denominator query (climate + policy)
-        denom_query = api.build_search_query(
-            climate_terms=config.CLIMATE_TERMS,
-            policy_terms=config.POLICY_TERMS,
-        )
+        def fetch_query_count(uncertainty_terms=None, direction_terms=None) -> int:
+            """Build query and fetch count with common climate/policy terms."""
+            query = api.build_search_query(
+                climate_terms=config.CLIMATE_TERMS,
+                policy_terms=config.POLICY_TERMS,
+                uncertainty_terms=uncertainty_terms,
+                direction_terms=direction_terms,
+            )
+            return api.fetch_count(query, date_filter=date_filter, dry_run=dry_run)
 
-        # Fetch denominator count
-        denominator = api.fetch_count(denom_query, date_filter=date_filter, dry_run=dry_run)
-
-        # Build numerator query (add uncertainty)
-        numer_query = api.build_search_query(
-            climate_terms=config.CLIMATE_TERMS,
-            policy_terms=config.POLICY_TERMS,
+        # Collect all four query types
+        denominator = fetch_query_count()
+        numerator = fetch_query_count(uncertainty_terms=config.UNCERTAINTY_TERMS)
+        numerator_down = fetch_query_count(
             uncertainty_terms=config.UNCERTAINTY_TERMS,
+            direction_terms=config.DOWNSIDE_TERMS,
         )
-
-        # Fetch numerator count
-        numerator = api.fetch_count(numer_query, date_filter=date_filter, dry_run=dry_run)
-
-        # Calculate ratio (handle division by zero)
-        raw_ratio = numerator / denominator if denominator > 0 else 0.0
+        numerator_up = fetch_query_count(
+            uncertainty_terms=config.UNCERTAINTY_TERMS,
+            direction_terms=config.UPSIDE_TERMS,
+        )
 
         # Save to database
         if not dry_run:
             db.save_month_count(month_str, "denominator", denominator)
             db.save_month_count(month_str, "numerator", numerator)
+            db.save_month_count(month_str, "numerator_down", numerator_down)
+            db.save_month_count(month_str, "numerator_up", numerator_up)
 
         return {
             "month": month_str,
             "denominator": denominator,
             "numerator": numerator,
-            "raw_ratio": raw_ratio,
+            "numerator_down": numerator_down,
+            "numerator_up": numerator_up,
             "status": "complete",
         }
 
