@@ -1,7 +1,7 @@
 """
 LLM-based Article Validation Pipeline for CPU Index
 
-Validates keyword classification accuracy using GPT-4o-mini with adaptive sampling.
+Validates keyword classification accuracy using GPT-5-nano with adaptive sampling.
 This addresses the core methodological concern: keyword matching alone may miss
 nuances in whether an article truly discusses policy uncertainty.
 
@@ -208,7 +208,7 @@ def classify_article(article: dict) -> dict:
 
     try:
         response = openai.chat.completions.create(
-            model="gpt-4o-mini",
+            model=config.LLM_MODEL,
             messages=[
                 {
                     "role": "system",

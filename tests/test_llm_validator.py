@@ -1,7 +1,7 @@
 """
 Tests for llm_validator.py - LLM-based article validation pipeline
 
-Validates keyword classification accuracy using GPT-4o-mini with adaptive sampling.
+Validates keyword classification accuracy using GPT-5-nano with adaptive sampling.
 Initial sample: 1000 articles, expand if accuracy < 85%.
 
 Classification schema:
@@ -184,8 +184,9 @@ class TestLLMClassification:
         mock_openai.chat.completions.create.assert_called_once()
         call_args = mock_openai.chat.completions.create.call_args
 
-        # Check model is gpt-4o-mini
-        assert call_args.kwargs["model"] == "gpt-4o-mini"
+        # Check model is from config (gpt-5-nano)
+        import config
+        assert call_args.kwargs["model"] == config.LLM_MODEL
 
         # Check response_format for JSON
         assert call_args.kwargs.get("response_format", {}).get("type") == "json_object"

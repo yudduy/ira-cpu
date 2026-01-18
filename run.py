@@ -246,7 +246,7 @@ def validate_sample():
     print(f"\nArticles available: {len(articles)}")
     print(f"Sample size: {sample_size} articles")
     print(f"Estimated cost: ${cost_est['estimated_cost_usd']:.4f}")
-    print(f"  (GPT-4o-mini: ~$0.15/1M input, $0.60/1M output)")
+    print(f"  (GPT-5-nano: ~$0.05/1M input, $0.40/1M output)")
 
     confirm = input("\nRun validation? (yes/no): ").strip().lower()
 

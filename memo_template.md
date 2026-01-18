@@ -123,7 +123,7 @@ Pre-registered events with expected CPU response:
 
 ### LLM Audit
 
-A random sample of {{LLM_SAMPLE_SIZE}} articles was validated using GPT-4:
+A random sample of {{LLM_SAMPLE_SIZE}} articles was validated using GPT-5-nano:
 
 - **Keyword vs LLM correlation**: {{LLM_CORRELATION}}
 - **False positive rate**: {{FALSE_POSITIVE_RATE}}%
