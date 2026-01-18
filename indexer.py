@@ -1,80 +1,102 @@
 """
-CPU Index calculation for CPU Index Builder
+CPU Index calculation for Climate Policy Uncertainty Index Builder
 
-Calculates the Climate Policy Uncertainty index following
-Baker, Bloom & Davis (2016) methodology, extended with
-asymmetric uncertainty decomposition from:
+Calculates indices following Baker, Bloom & Davis (2016) methodology:
+1. CPU_t: Standard climate policy uncertainty (requires uncertainty term)
+2. CPU_impl_t: Implementation uncertainty (uncertainty + implementation terms)
+3. CPU_reversal_t: Reversal uncertainty (uncertainty + reversal terms)
 
-- Segal, Shaliastovich & Yaron (2015) "Good and Bad Uncertainty"
-- Forni, Gambetti & Sala (2025) "Downside and Upside Uncertainty Shocks"
+Also calculates:
+- Policy Regime Salience Index: IRA/OBBBA mentions normalized
+- Directional balance metric: (impl - reversal) / (impl + reversal)
+- Outlet-level indices for robustness analysis
 
-Three indices are calculated:
-- CPU (standard): neutral uncertainty
-- CPU-Down: downside/rollback uncertainty
-- CPU-Up: upside/expansion uncertainty
-
-Plus a directional balance metric:
-- CPU-Direction = (up - down) / (up + down), ranges -1 to +1
-
-All normalized so mean = 100 for interpretability.
+All indices normalized so base period mean = 100.
 """
 
 import statistics
+from typing import Optional
 
-import db
+import db_postgres
+import normalizer
 
 
-def calculate_raw_index() -> list[dict]:
+# Index type constants
+INDEX_CPU = "CPU"  # Standard uncertainty
+INDEX_CPU_IMPL = "CPU_impl"  # Implementation uncertainty
+INDEX_CPU_REVERSAL = "CPU_reversal"  # Reversal uncertainty
+INDEX_SALIENCE_IRA = "salience_ira"  # IRA mentions
+INDEX_SALIENCE_OBBBA = "salience_obbba"  # OBBBA mentions
+
+
+def calculate_raw_counts() -> list[dict]:
     """
-    Calculate raw CPU ratios for each month from database.
+    Get raw classification counts from database.
 
     Returns list of dicts with:
-    - month, denominator
-    - numerator, raw_ratio (standard CPU)
-    - numerator_down, raw_ratio_down (CPU-Down)
-    - numerator_up, raw_ratio_up (CPU-Up)
+    - month
+    - total_articles (denominator)
+    - uncertainty_count (CPU numerator)
+    - implementation_uncertainty_count (CPU_impl numerator)
+    - reversal_uncertainty_count (CPU_reversal numerator)
+    - ira_count, obbba_count (salience indices)
     """
-    progress = db.get_all_progress()
+    return db_postgres.get_classification_counts_by_month()
 
-    # Group by month
-    months_data = {}
-    for record in progress:
-        month = record["month"]
-        if month not in months_data:
-            months_data[month] = {}
-        months_data[month][record["query_type"]] = record["count"]
 
-    # Calculate ratios for all index types
+def calculate_raw_index_values(raw_counts: list[dict]) -> list[dict]:
+    """
+    Calculate raw ratios from counts.
+
+    Args:
+        raw_counts: From calculate_raw_counts()
+
+    Returns:
+        List of dicts with raw ratios for each index type
+    """
     results = []
-    for month in sorted(months_data.keys()):
-        data = months_data[month]
 
-        # Need at least denominator and standard numerator
-        if "denominator" not in data or "numerator" not in data:
+    for record in raw_counts:
+        month = record["month"]
+        denominator = record.get("total_articles", 0)
+
+        if denominator == 0:
             continue
 
-        denom = data["denominator"]
-        numer = data["numerator"]
-        numer_down = data.get("numerator_down", 0)
-        numer_up = data.get("numerator_up", 0)
+        # Calculate ratios for each index type
+        cpu_ratio = record.get("uncertainty_count", 0) / denominator
+        cpu_impl_ratio = record.get("implementation_uncertainty_count", 0) / denominator
+        cpu_reversal_ratio = record.get("reversal_uncertainty_count", 0) / denominator
+        ira_ratio = record.get("ira_count", 0) / denominator
+        obbba_ratio = record.get("obbba_count", 0) / denominator
 
-        # Calculate ratios (handle division by zero)
-        ratio = numer / denom if denom > 0 else 0.0
-        ratio_down = numer_down / denom if denom > 0 else 0.0
-        ratio_up = numer_up / denom if denom > 0 else 0.0
+        # Calculate direction metric
+        impl_count = record.get("implementation_uncertainty_count", 0)
+        reversal_count = record.get("reversal_uncertainty_count", 0)
+        total_directional = impl_count + reversal_count
+
+        if total_directional > 0:
+            direction = (impl_count - reversal_count) / total_directional
+        else:
+            direction = 0.0
 
         results.append({
             "month": month,
-            "denominator": denom,
-            # Standard CPU
-            "numerator": numer,
-            "raw_ratio": ratio,
-            # CPU-Down (downside uncertainty)
-            "numerator_down": numer_down,
-            "raw_ratio_down": ratio_down,
-            # CPU-Up (upside uncertainty)
-            "numerator_up": numer_up,
-            "raw_ratio_up": ratio_up,
+            "denominator": denominator,
+            # CPU counts
+            "numerator_cpu": record.get("uncertainty_count", 0),
+            "numerator_impl": record.get("implementation_uncertainty_count", 0),
+            "numerator_reversal": record.get("reversal_uncertainty_count", 0),
+            "numerator_ira": record.get("ira_count", 0),
+            "numerator_obbba": record.get("obbba_count", 0),
+            # Raw ratios
+            "raw_ratio_cpu": cpu_ratio,
+            "raw_ratio_impl": cpu_impl_ratio,
+            "raw_ratio_reversal": cpu_reversal_ratio,
+            "raw_ratio_ira": ira_ratio,
+            "raw_ratio_obbba": obbba_ratio,
+            # Direction metric
+            "cpu_direction": direction,
         })
 
     return results
@@ -123,11 +145,8 @@ def normalize_index(
     """
     Normalize all indices so mean = 100 over base period.
 
-    Uses COMMON base period for all three indices to allow
-    direct comparison of levels (per research recommendation).
-
     Args:
-        raw_values: List from calculate_raw_index()
+        raw_values: List from calculate_raw_index_values()
         base_start: Start of base period (None = use all)
         base_end: End of base period (None = use all)
 
@@ -146,130 +165,118 @@ def normalize_index(
     else:
         base_indices = None  # Use all
 
-    # Extract raw ratio series
-    raw_ratios = [v["raw_ratio"] for v in raw_values]
+    # Normalize each index type
+    index_types = [
+        ("raw_ratio_cpu", "normalized_cpu"),
+        ("raw_ratio_impl", "normalized_impl"),
+        ("raw_ratio_reversal", "normalized_reversal"),
+        ("raw_ratio_ira", "normalized_ira"),
+        ("raw_ratio_obbba", "normalized_obbba"),
+    ]
 
-    # Check if directional data is available (backward compatibility)
-    has_directional = "raw_ratio_down" in raw_values[0] if raw_values else False
-
-    if has_directional:
-        raw_ratios_down = [v["raw_ratio_down"] for v in raw_values]
-        raw_ratios_up = [v["raw_ratio_up"] for v in raw_values]
-
-    # Normalize each series
-    normalized = _normalize_series(raw_ratios, base_indices)
-
-    if has_directional:
-        normalized_down = _normalize_series(raw_ratios_down, base_indices)
-        normalized_up = _normalize_series(raw_ratios_up, base_indices)
-
-    # Add normalized values and calculate direction
-    for i, v in enumerate(raw_values):
-        v["normalized"] = normalized[i]
-
-        if has_directional:
-            v["normalized_down"] = normalized_down[i]
-            v["normalized_up"] = normalized_up[i]
-
-            # CPU-Direction: (up - down) / (up + down)
-            # Ranges from -1 (all downside) to +1 (all upside)
-            up_val = v.get("numerator_up", 0)
-            down_val = v.get("numerator_down", 0)
-            if up_val + down_val > 0:
-                v["cpu_direction"] = (up_val - down_val) / (up_val + down_val)
-            else:
-                v["cpu_direction"] = 0.0
+    for raw_key, norm_key in index_types:
+        if raw_key in raw_values[0]:
+            raw_ratios = [v.get(raw_key, 0) for v in raw_values]
+            normalized = _normalize_series(raw_ratios, base_indices)
+            for i, v in enumerate(raw_values):
+                v[norm_key] = normalized[i]
 
     return raw_values
 
 
-def build_index(base_start: str = None, base_end: str = None) -> dict:
+def build_index(
+    base_start: str = None,
+    base_end: str = None,
+    save_to_db: bool = True,
+) -> dict:
     """
     Build complete CPU indices from database.
 
-    Calculates three indices:
-    - CPU (standard): general uncertainty
-    - CPU-Down: downside/rollback uncertainty
-    - CPU-Up: upside/expansion uncertainty
+    Calculates:
+    - CPU: Standard uncertainty index
+    - CPU_impl: Implementation uncertainty index
+    - CPU_reversal: Reversal uncertainty index
+    - Salience indices for IRA/OBBBA
 
-    Plus CPU-Direction metric.
+    Args:
+        base_start: Start of base period (None = use all)
+        base_end: End of base period (None = use all)
+        save_to_db: Whether to save results to database
 
-    Returns dict with metadata and series.
+    Returns:
+        Dict with metadata and series
     """
-    raw = calculate_raw_index()
+    raw_counts = calculate_raw_counts()
 
-    if not raw:
+    if not raw_counts:
         return {
             "status": "error",
             "message": "No data found. Run data collection first.",
         }
 
-    normalized = normalize_index(raw, base_start, base_end)
+    raw_values = calculate_raw_index_values(raw_counts)
+    if not raw_values:
+        return {
+            "status": "error",
+            "message": "No valid data for index calculation.",
+        }
+
+    normalized = normalize_index(raw_values, base_start, base_end)
 
     def calc_stats(values: list[float]) -> dict:
         """Calculate mean and std for a series."""
+        valid = [v for v in values if v is not None]
         return {
-            "mean": statistics.mean(values) if values else 0,
-            "std": statistics.stdev(values) if len(values) > 1 else 0,
+            "mean": statistics.mean(valid) if valid else 0,
+            "std": statistics.stdev(valid) if len(valid) > 1 else 0,
         }
 
-    # Check if directional data is available
-    has_directional = "normalized_down" in normalized[0] if normalized else False
-
-    # Calculate statistics for standard CPU (always available)
-    stats = {
-        "standard": {
-            "mean_raw": calc_stats([v["raw_ratio"] for v in normalized])["mean"],
-            "std_raw": calc_stats([v["raw_ratio"] for v in normalized])["std"],
-            "mean_norm": calc_stats([v["normalized"] for v in normalized])["mean"],
-            "std_norm": calc_stats([v["normalized"] for v in normalized])["std"],
-        }
-    }
-
-    # Calculate directional statistics only if available
-    if has_directional:
-        for key, ratio_key, norm_key in [
-            ("down", "raw_ratio_down", "normalized_down"),
-            ("up", "raw_ratio_up", "normalized_up"),
-        ]:
-            stats[key] = {
-                "mean_raw": calc_stats([v[ratio_key] for v in normalized])["mean"],
-                "std_raw": calc_stats([v[ratio_key] for v in normalized])["std"],
-                "mean_norm": calc_stats([v[norm_key] for v in normalized])["mean"],
-                "std_norm": calc_stats([v[norm_key] for v in normalized])["std"],
+    # Calculate statistics for each index type
+    stats = {}
+    for name, raw_key, norm_key in [
+        ("cpu", "raw_ratio_cpu", "normalized_cpu"),
+        ("impl", "raw_ratio_impl", "normalized_impl"),
+        ("reversal", "raw_ratio_reversal", "normalized_reversal"),
+        ("ira", "raw_ratio_ira", "normalized_ira"),
+        ("obbba", "raw_ratio_obbba", "normalized_obbba"),
+    ]:
+        if raw_key in normalized[0]:
+            stats[name] = {
+                "mean_raw": calc_stats([v.get(raw_key, 0) for v in normalized])["mean"],
+                "std_raw": calc_stats([v.get(raw_key, 0) for v in normalized])["std"],
+                "mean_norm": calc_stats([v.get(norm_key, 0) for v in normalized])["mean"],
+                "std_norm": calc_stats([v.get(norm_key, 0) for v in normalized])["std"],
             }
 
-        # CPU-Direction statistics
-        directions = [v["cpu_direction"] for v in normalized]
-        dir_stats = calc_stats(directions)
-        stats["direction"] = {
-            "mean": dir_stats["mean"],
-            "std": dir_stats["std"],
-            "min": min(directions) if directions else 0,
-            "max": max(directions) if directions else 0,
-        }
-    else:
-        # Default stats when directional data not available
-        stats["down"] = {"mean_raw": 0, "std_raw": 0, "mean_norm": 0, "std_norm": 0}
-        stats["up"] = {"mean_raw": 0, "std_raw": 0, "mean_norm": 0, "std_norm": 0}
-        stats["direction"] = {"mean": 0, "std": 0, "min": 0, "max": 0}
+    # Direction statistics
+    directions = [v.get("cpu_direction", 0) for v in normalized]
+    dir_stats = calc_stats(directions)
+    stats["direction"] = {
+        "mean": dir_stats["mean"],
+        "std": dir_stats["std"],
+        "min": min(directions) if directions else 0,
+        "max": max(directions) if directions else 0,
+    }
 
     # Save to database
-    for v in normalized:
-        db.save_index_value(
-            month=v["month"],
-            denominator=v["denominator"],
-            numerator=v["numerator"],
-            raw_ratio=v["raw_ratio"],
-            normalized=v["normalized"],
-            numerator_down=v.get("numerator_down"),
-            raw_ratio_down=v.get("raw_ratio_down"),
-            normalized_down=v.get("normalized_down"),
-            numerator_up=v.get("numerator_up"),
-            raw_ratio_up=v.get("raw_ratio_up"),
-            normalized_up=v.get("normalized_up"),
-            cpu_direction=v.get("cpu_direction"),
-        )
+    if save_to_db:
+        for v in normalized:
+            # Save each index type
+            for index_type, num_key, norm_key in [
+                (INDEX_CPU, "numerator_cpu", "normalized_cpu"),
+                (INDEX_CPU_IMPL, "numerator_impl", "normalized_impl"),
+                (INDEX_CPU_REVERSAL, "numerator_reversal", "normalized_reversal"),
+                (INDEX_SALIENCE_IRA, "numerator_ira", "normalized_ira"),
+                (INDEX_SALIENCE_OBBBA, "numerator_obbba", "normalized_obbba"),
+            ]:
+                if num_key in v:
+                    db_postgres.save_index_value(
+                        month=v["month"],
+                        index_type=index_type,
+                        denominator=v["denominator"],
+                        numerator=v.get(num_key, 0),
+                        normalized=v.get(norm_key),
+                    )
 
     return {
         "status": "success",
@@ -277,16 +284,15 @@ def build_index(base_start: str = None, base_end: str = None) -> dict:
             "period": f"{normalized[0]['month']} to {normalized[-1]['month']}",
             "base_period": f"{base_start or 'all'} to {base_end or 'all'}",
             "num_months": len(normalized),
-            # Standard CPU stats
-            "mean_raw_ratio": stats["standard"]["mean_raw"],
-            "std_raw_ratio": stats["standard"]["std_raw"],
-            "mean_normalized": stats["standard"]["mean_norm"],
-            # CPU-Down stats
-            "mean_normalized_down": stats["down"]["mean_norm"],
-            "std_normalized_down": stats["down"]["std_norm"],
-            # CPU-Up stats
-            "mean_normalized_up": stats["up"]["mean_norm"],
-            "std_normalized_up": stats["up"]["std_norm"],
+            # CPU stats
+            "mean_normalized_cpu": stats.get("cpu", {}).get("mean_norm", 0),
+            "std_normalized_cpu": stats.get("cpu", {}).get("std_norm", 0),
+            # Implementation stats
+            "mean_normalized_impl": stats.get("impl", {}).get("mean_norm", 0),
+            "std_normalized_impl": stats.get("impl", {}).get("std_norm", 0),
+            # Reversal stats
+            "mean_normalized_reversal": stats.get("reversal", {}).get("mean_norm", 0),
+            "std_normalized_reversal": stats.get("reversal", {}).get("std_norm", 0),
             # Direction stats
             "mean_direction": stats["direction"]["mean"],
             "direction_range": f"{stats['direction']['min']:.2f} to {stats['direction']['max']:.2f}",
@@ -295,9 +301,82 @@ def build_index(base_start: str = None, base_end: str = None) -> dict:
     }
 
 
+def build_outlet_level_index(
+    base_start: str = None,
+    base_end: str = None,
+    outlets: list[str] = None,
+) -> dict:
+    """
+    Build outlet-level CPU indices for robustness analysis.
+
+    Each outlet gets its own normalized index, allowing comparison
+    of uncertainty patterns across sources.
+
+    Args:
+        base_start: Start of base period
+        base_end: End of base period
+        outlets: List of outlets to include (None = all)
+
+    Returns:
+        Dict mapping outlet names to their index series
+    """
+    outlet_data = db_postgres.get_classification_counts_by_outlet()
+
+    if not outlet_data:
+        return {"status": "error", "message": "No outlet data found."}
+
+    # Group by outlet
+    by_outlet = {}
+    for record in outlet_data:
+        outlet = record.get("outlet", "Unknown")
+        if outlets and outlet not in outlets:
+            continue
+
+        if outlet not in by_outlet:
+            by_outlet[outlet] = {}
+
+        month = record["month"]
+        by_outlet[outlet][month] = {
+            "numerator": record.get("uncertainty_count", 0),
+            "denominator": record.get("total_articles", 0),
+        }
+
+    # Use BBD-style normalization for outlet-level
+    result = normalizer.compute_outlet_level_cpu(
+        by_outlet,
+        base_start=base_start or "1900-01",
+        base_end=base_end or "2099-12",
+    )
+
+    # Save to database with outlet specified
+    for outlet, series in result.items():
+        for month, normalized_value in series.items():
+            # Get raw data for this outlet/month
+            outlet_months = by_outlet.get(outlet, {})
+            month_data = outlet_months.get(month, {})
+
+            db_postgres.save_index_value(
+                month=month,
+                index_type=INDEX_CPU,
+                outlet=outlet,
+                denominator=month_data.get("denominator", 0),
+                numerator=month_data.get("numerator", 0),
+                normalized=normalized_value,
+            )
+
+    return {
+        "status": "success",
+        "num_outlets": len(result),
+        "outlets": list(result.keys()),
+        "series": result,
+    }
+
+
 def validate_against_events() -> dict:
     """
     Sanity check: Compare index to known policy events.
+
+    Returns validation results against expected spikes/drops.
     """
     # Key events to check
     events = [
@@ -307,7 +386,7 @@ def validate_against_events() -> dict:
         {"date": "2025-01", "event": "Trump executive orders", "expected": "spike"},
     ]
 
-    index_values = db.get_all_index_values()
+    index_values = db_postgres.get_index_values(INDEX_CPU)
     if not index_values:
         return {"status": "error", "message": "No index values. Build index first."}
 
@@ -321,7 +400,7 @@ def validate_against_events() -> dict:
             results.append({**event, "result": "NO DATA"})
             continue
 
-        current = value_by_month[month]["normalized"]
+        current = value_by_month[month].get("normalized", 0)
 
         # Get prior month
         prior_month = _get_prior_month(month)
@@ -337,8 +416,8 @@ def validate_against_events() -> dict:
 
         results.append({
             **event,
-            "actual_cpu": round(current, 1),
-            "prior_cpu": round(prior, 1),
+            "actual_cpu": round(current, 1) if current else 0,
+            "prior_cpu": round(prior, 1) if prior else 0,
             "change_percent": round(change, 1),
             "result": "PASS" if passed else "FAIL",
         })
@@ -360,23 +439,33 @@ def _get_prior_month(month: str) -> str:
     return f"{year}-{mon - 1:02d}"
 
 
-def get_index_summary() -> dict:
-    """Get summary statistics for display."""
-    values = db.get_all_index_values()
+def get_index_summary(index_type: str = INDEX_CPU) -> dict:
+    """
+    Get summary statistics for an index type.
+
+    Args:
+        index_type: Which index to summarize (default: CPU)
+
+    Returns:
+        Summary dict with statistics
+    """
+    values = db_postgres.get_index_values(index_type)
 
     if not values:
-        return {"status": "empty", "message": "No index calculated yet."}
+        return {"status": "empty", "message": f"No index calculated yet for {index_type}."}
 
-    norm = [v["normalized"] for v in values if v["normalized"]]
+    norm = [v["normalized"] for v in values if v.get("normalized")]
 
     if not norm:
         return {"status": "incomplete", "message": "Index not normalized yet."}
 
     # Find peaks and troughs
-    sorted_by_value = sorted(values, key=lambda x: x["normalized"] or 0, reverse=True)
+    sorted_by_value_desc = sorted(values, key=lambda x: x.get("normalized") or 0, reverse=True)
+    sorted_by_value_asc = sorted(values, key=lambda x: x.get("normalized") or 0)
 
     return {
         "status": "ready",
+        "index_type": index_type,
         "period": f"{values[0]['month']} to {values[-1]['month']}",
         "num_months": len(values),
         "mean": round(statistics.mean(norm), 1),
@@ -385,10 +474,185 @@ def get_index_summary() -> dict:
         "max": round(max(norm), 1),
         "top_3_peaks": [
             {"month": v["month"], "cpu": round(v["normalized"], 1)}
-            for v in sorted_by_value[:3]
+            for v in sorted_by_value_desc[:3]
         ],
         "top_3_troughs": [
             {"month": v["month"], "cpu": round(v["normalized"], 1)}
-            for v in sorted_by_value[-3:]
+            for v in sorted_by_value_asc[:3]
         ],
     }
+
+
+def compare_index_types(
+    base_start: str = None,
+    base_end: str = None,
+) -> dict:
+    """
+    Compare different index types for analysis.
+
+    Returns correlation and divergence metrics between
+    CPU, CPU_impl, and CPU_reversal.
+    """
+    cpu = db_postgres.get_index_values(INDEX_CPU)
+    cpu_impl = db_postgres.get_index_values(INDEX_CPU_IMPL)
+    cpu_reversal = db_postgres.get_index_values(INDEX_CPU_REVERSAL)
+
+    if not cpu or not cpu_impl or not cpu_reversal:
+        return {"status": "error", "message": "Missing index data. Build indices first."}
+
+    # Align series by month
+    months = sorted(set(v["month"] for v in cpu))
+
+    cpu_by_month = {v["month"]: v.get("normalized", 0) for v in cpu}
+    impl_by_month = {v["month"]: v.get("normalized", 0) for v in cpu_impl}
+    reversal_by_month = {v["month"]: v.get("normalized", 0) for v in cpu_reversal}
+
+    # Calculate correlation
+    aligned_cpu = [cpu_by_month.get(m, 0) for m in months]
+    aligned_impl = [impl_by_month.get(m, 0) for m in months]
+    aligned_reversal = [reversal_by_month.get(m, 0) for m in months]
+
+    import numpy as np
+
+    def corr(a, b):
+        if len(a) < 2:
+            return 0.0
+        arr_a = np.array(a)
+        arr_b = np.array(b)
+        if np.std(arr_a) == 0 or np.std(arr_b) == 0:
+            return 0.0
+        return float(np.corrcoef(arr_a, arr_b)[0, 1])
+
+    return {
+        "status": "success",
+        "num_months": len(months),
+        "correlations": {
+            "cpu_impl": corr(aligned_cpu, aligned_impl),
+            "cpu_reversal": corr(aligned_cpu, aligned_reversal),
+            "impl_reversal": corr(aligned_impl, aligned_reversal),
+        },
+        "summary": {
+            "cpu_mean": statistics.mean(aligned_cpu) if aligned_cpu else 0,
+            "impl_mean": statistics.mean(aligned_impl) if aligned_impl else 0,
+            "reversal_mean": statistics.mean(aligned_reversal) if aligned_reversal else 0,
+        },
+    }
+
+
+# =============================================================================
+# LEGACY COMPATIBILITY
+# =============================================================================
+# These functions provide backward compatibility with the old db module
+
+
+def calculate_raw_index() -> list[dict]:
+    """
+    Legacy function for backward compatibility.
+
+    Returns raw index data in the old format.
+    """
+    raw_counts = calculate_raw_counts()
+    if not raw_counts:
+        return []
+
+    raw_values = calculate_raw_index_values(raw_counts)
+
+    # Convert to legacy format
+    results = []
+    for v in raw_values:
+        legacy_record = {
+            "month": v["month"],
+            "denominator": v["denominator"],
+            "numerator": v.get("numerator_cpu", 0),
+            "raw_ratio": v.get("raw_ratio_cpu", 0),
+            # Map new names to old names for compatibility
+            "numerator_down": v.get("numerator_reversal", 0),
+            "raw_ratio_down": v.get("raw_ratio_reversal", 0),
+            "numerator_up": v.get("numerator_impl", 0),
+            "raw_ratio_up": v.get("raw_ratio_impl", 0),
+        }
+        results.append(legacy_record)
+
+    return results
+
+
+def get_all_index_values() -> list[dict]:
+    """Legacy function to get all CPU index values."""
+    return db_postgres.get_index_values(INDEX_CPU)
+
+
+def get_full_index_data() -> dict:
+    """
+    Get full index data in format for exports/visualizations.
+
+    Returns:
+        Dict mapping months to index components:
+        {month: {cpu, cpu_impl, cpu_reversal, salience_ira, salience_obbba, denominator}}
+    """
+    cpu_values = db_postgres.get_index_values(INDEX_CPU)
+    impl_values = db_postgres.get_index_values(INDEX_CPU_IMPL)
+    reversal_values = db_postgres.get_index_values(INDEX_CPU_REVERSAL)
+    ira_values = db_postgres.get_index_values(INDEX_SALIENCE_IRA)
+    obbba_values = db_postgres.get_index_values(INDEX_SALIENCE_OBBBA)
+
+    cpu_by_month = {r["month"]: r for r in cpu_values}
+    impl_by_month = {r["month"]: r for r in impl_values}
+    reversal_by_month = {r["month"]: r for r in reversal_values}
+    ira_by_month = {r["month"]: r for r in ira_values}
+    obbba_by_month = {r["month"]: r for r in obbba_values}
+
+    all_months = set(cpu_by_month.keys())
+
+    result = {}
+    for month in sorted(all_months):
+        cpu = cpu_by_month.get(month, {})
+        impl = impl_by_month.get(month, {})
+        reversal = reversal_by_month.get(month, {})
+        ira = ira_by_month.get(month, {})
+        obbba = obbba_by_month.get(month, {})
+
+        result[month] = {
+            "cpu": cpu.get("normalized", 0),
+            "cpu_impl": impl.get("normalized", 0),
+            "cpu_reversal": reversal.get("normalized", 0),
+            "salience_ira": ira.get("numerator", 0),
+            "salience_obbba": obbba.get("numerator", 0),
+            "denominator": cpu.get("denominator", 0),
+        }
+
+    return result
+
+
+def get_outlet_level_indices() -> dict:
+    """
+    Get outlet-level CPU indices for robustness analysis.
+
+    Returns:
+        Dict mapping outlet names to their index series:
+        {outlet: {month: cpu_value}}
+    """
+    outlet_data = db_postgres.get_classification_counts_by_outlet()
+
+    if not outlet_data:
+        return {}
+
+    raw_by_outlet = {}
+    for record in outlet_data:
+        outlet = record["outlet"]
+        month = record["month"]
+        numerator = record.get("uncertainty_count", 0)
+        denominator = record.get("total_articles", 0)
+
+        if outlet not in raw_by_outlet:
+            raw_by_outlet[outlet] = {}
+
+        raw_by_outlet[outlet][month] = {
+            "numerator": numerator,
+            "denominator": denominator,
+        }
+
+    return normalizer.compute_outlet_level_cpu(
+        raw_by_outlet,
+        base_start="2021-01",
+        base_end="2024-10",
+    )

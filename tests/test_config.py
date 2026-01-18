@@ -222,17 +222,17 @@ class TestAPIConfiguration:
 class TestFilePathConfiguration:
     """Tests for file path configuration."""
 
-    def test_db_path_exists(self):
-        """DB_PATH constant should be defined."""
-        assert hasattr(config, "DB_PATH")
+    def test_database_url_exists(self):
+        """DATABASE_URL constant should be defined."""
+        assert hasattr(config, "DATABASE_URL")
 
-    def test_db_path_is_string(self):
-        """DB_PATH should be a string."""
-        assert isinstance(config.DB_PATH, str)
+    def test_database_url_is_string(self):
+        """DATABASE_URL should be a string."""
+        assert isinstance(config.DATABASE_URL, str)
 
-    def test_db_path_ends_with_db(self):
-        """DB_PATH should end with .db extension."""
-        assert config.DB_PATH.endswith(".db")
+    def test_database_url_is_postgresql(self):
+        """DATABASE_URL should be a PostgreSQL connection string."""
+        assert config.DATABASE_URL.startswith("postgresql://")
 
     def test_export_dir_exists(self):
         """EXPORT_DIR constant should be defined."""
@@ -241,3 +241,123 @@ class TestFilePathConfiguration:
     def test_export_dir_is_string(self):
         """EXPORT_DIR should be a string."""
         assert isinstance(config.EXPORT_DIR, str)
+
+
+class TestNewKeywordCategories:
+    """Tests for new RA1-specific keyword categories."""
+
+    def test_implementation_terms_exists(self):
+        """IMPLEMENTATION_TERMS should be defined for CPU_impl index."""
+        assert hasattr(config, "IMPLEMENTATION_TERMS")
+        assert isinstance(config.IMPLEMENTATION_TERMS, list)
+        assert len(config.IMPLEMENTATION_TERMS) > 0
+
+    def test_implementation_terms_has_key_words(self):
+        """IMPLEMENTATION_TERMS should contain implementation-related keywords."""
+        expected = ["delay", "guidance", "approval", "timeline"]
+        for keyword in expected:
+            assert any(keyword in term.lower() for term in config.IMPLEMENTATION_TERMS), \
+                f"Missing implementation term: {keyword}"
+
+    def test_reversal_terms_exists(self):
+        """REVERSAL_TERMS should be defined for CPU_reversal index."""
+        assert hasattr(config, "REVERSAL_TERMS")
+        assert isinstance(config.REVERSAL_TERMS, list)
+        assert len(config.REVERSAL_TERMS) > 0
+
+    def test_reversal_terms_has_key_words(self):
+        """REVERSAL_TERMS should contain reversal/rollback keywords."""
+        expected = ["rollback", "repeal", "overturn", "terminate"]
+        for keyword in expected:
+            assert any(keyword in term.lower() for term in config.REVERSAL_TERMS), \
+                f"Missing reversal term: {keyword}"
+
+    def test_regime_ira_terms_exists(self):
+        """REGIME_IRA_TERMS should be defined for Policy Regime Salience."""
+        assert hasattr(config, "REGIME_IRA_TERMS")
+        assert isinstance(config.REGIME_IRA_TERMS, list)
+        assert len(config.REGIME_IRA_TERMS) > 0
+
+    def test_regime_ira_terms_has_key_words(self):
+        """REGIME_IRA_TERMS should contain IRA-specific terms."""
+        # Check for main IRA reference
+        assert any("Inflation Reduction Act" in term for term in config.REGIME_IRA_TERMS)
+
+    def test_regime_obbba_terms_exists(self):
+        """REGIME_OBBBA_TERMS should be defined for Policy Regime Salience."""
+        assert hasattr(config, "REGIME_OBBBA_TERMS")
+        assert isinstance(config.REGIME_OBBBA_TERMS, list)
+        assert len(config.REGIME_OBBBA_TERMS) > 0
+
+    def test_regime_obbba_terms_has_key_words(self):
+        """REGIME_OBBBA_TERMS should contain OBBBA-specific terms."""
+        assert any("OBBBA" in term or "Beautiful Bill" in term
+                   for term in config.REGIME_OBBBA_TERMS)
+
+
+class TestPlaceboKeywords:
+    """Tests for placebo/control index keywords."""
+
+    def test_trade_terms_exists(self):
+        """TRADE_TERMS should be defined for trade policy placebo."""
+        assert hasattr(config, "TRADE_TERMS")
+        assert isinstance(config.TRADE_TERMS, list)
+        assert len(config.TRADE_TERMS) > 0
+
+    def test_trade_terms_has_key_words(self):
+        """TRADE_TERMS should contain trade policy keywords."""
+        expected = ["trade", "tariff"]
+        for keyword in expected:
+            assert any(keyword in term.lower() for term in config.TRADE_TERMS), \
+                f"Missing trade term: {keyword}"
+
+    def test_monetary_terms_exists(self):
+        """MONETARY_TERMS should be defined for monetary policy placebo."""
+        assert hasattr(config, "MONETARY_TERMS")
+        assert isinstance(config.MONETARY_TERMS, list)
+        assert len(config.MONETARY_TERMS) > 0
+
+    def test_monetary_terms_has_key_words(self):
+        """MONETARY_TERMS should contain monetary policy keywords."""
+        expected = ["Federal Reserve", "interest rate"]
+        for keyword in expected:
+            assert any(keyword in term for term in config.MONETARY_TERMS), \
+                f"Missing monetary term: {keyword}"
+
+
+class TestBBDOutlets:
+    """Tests for BBD newspaper outlet configuration."""
+
+    def test_bbd_outlets_exists(self):
+        """BBD_OUTLETS should be defined for outlet-level analysis."""
+        assert hasattr(config, "BBD_OUTLETS")
+        assert isinstance(config.BBD_OUTLETS, list)
+
+    def test_bbd_outlets_has_eight_newspapers(self):
+        """BBD_OUTLETS should contain exactly 8 newspapers (per BBD methodology)."""
+        assert len(config.BBD_OUTLETS) == 8
+
+    def test_bbd_outlets_has_key_papers(self):
+        """BBD_OUTLETS should contain major BBD newspapers."""
+        expected = ["New York Times", "Wall Street Journal", "USA Today"]
+        for paper in expected:
+            assert paper in config.BBD_OUTLETS, f"Missing BBD outlet: {paper}"
+
+
+class TestDatabaseConfiguration:
+    """Tests for database configuration."""
+
+    def test_database_url_exists(self):
+        """DATABASE_URL should be defined for PostgreSQL connection."""
+        assert hasattr(config, "DATABASE_URL")
+        assert isinstance(config.DATABASE_URL, str)
+
+    def test_database_url_is_postgresql(self):
+        """DATABASE_URL should be a PostgreSQL connection string."""
+        assert config.DATABASE_URL.startswith("postgresql://")
+
+    def test_llm_accuracy_threshold_exists(self):
+        """LLM_ACCURACY_THRESHOLD should be defined."""
+        assert hasattr(config, "LLM_ACCURACY_THRESHOLD")
+        assert isinstance(config.LLM_ACCURACY_THRESHOLD, float)
+        assert 0.0 < config.LLM_ACCURACY_THRESHOLD <= 1.0
