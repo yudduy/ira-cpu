@@ -340,6 +340,151 @@ class TestFetchFullText:
             api.fetch_full_text(["id_1"])
 
 
+class TestFetchMetadataWithDateFilter:
+    """Tests for fetch_metadata with date filtering."""
+
+    def test_fetch_metadata_with_date_filter(self, mock_env_vars):
+        """fetch_metadata should include date filter in API call."""
+        import api
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"@odata.count": 5, "value": []}
+
+        with patch("api.requests.get", return_value=mock_response) as mock_get:
+            with patch("api.time.sleep"):
+                api.fetch_metadata(
+                    "climate AND policy",
+                    date_filter="Date ge 2024-01-01 and Date le 2024-01-31",
+                )
+
+        # Verify the URL contains the date filter
+        call_url = mock_get.call_args[0][0]
+        assert "filter=" in call_url
+
+    def test_fetch_metadata_progress_callback(self, mock_env_vars):
+        """fetch_metadata should call progress callback."""
+        import api
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "@odata.count": 10,
+            "value": [
+                {"ResultId": f"id_{i}", "Title": f"Article {i}",
+                 "Date": "2024-01-01", "Source": {"Name": "Test"}, "Overview": "..."}
+                for i in range(10)
+            ]
+        }
+
+        progress_calls = []
+        def track_progress(fetched, total):
+            progress_calls.append((fetched, total))
+
+        with patch("api.requests.get", return_value=mock_response):
+            with patch("api.time.sleep"):
+                api.fetch_metadata(
+                    "test query",
+                    progress_callback=track_progress,
+                )
+
+        # Should have called progress callback
+        assert len(progress_calls) > 0
+        assert progress_calls[-1][1] == 10  # Total should be 10
+
+
+class TestFetchArticlesForMonth:
+    """Tests for the fetch_articles_for_month convenience function."""
+
+    def test_fetch_articles_for_month_dry_run(self):
+        """fetch_articles_for_month with dry_run should return fake articles."""
+        import api
+
+        articles, metadata = api.fetch_articles_for_month(
+            year=2024,
+            month=1,
+            dry_run=True,
+        )
+
+        assert len(articles) == 10
+        assert all(a.get("month") == "2024-01" for a in articles)
+        assert "query_hash" in metadata
+        assert metadata["month"] == "2024-01"
+
+    def test_fetch_articles_for_month_default_query(self, mock_env_vars):
+        """fetch_articles_for_month should use climate AND policy query by default."""
+        import api
+        import config
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "@odata.count": 3,
+            "value": [
+                {"ResultId": f"id_{i}", "Title": f"Article {i}",
+                 "Date": "2024-01-15", "Source": {"Name": "Test"}, "Overview": "..."}
+                for i in range(3)
+            ]
+        }
+
+        with patch("api.requests.get", return_value=mock_response) as mock_get:
+            with patch("api.time.sleep"):
+                articles, metadata = api.fetch_articles_for_month(
+                    year=2024,
+                    month=1,
+                )
+
+        # Verify climate and policy terms are in the query
+        call_url = mock_get.call_args[0][0]
+        # Check that at least one climate term is in the query
+        assert any(term.lower() in call_url.lower() for term in config.CLIMATE_TERMS[:3])
+
+    def test_fetch_articles_for_month_adds_month_field(self):
+        """fetch_articles_for_month should add month field to all articles."""
+        import api
+
+        articles, metadata = api.fetch_articles_for_month(
+            year=2024,
+            month=6,
+            dry_run=True,
+        )
+
+        # All articles should have the correct month
+        for article in articles:
+            assert article["month"] == "2024-06"
+
+    def test_fetch_articles_for_month_metadata_includes_query_info(self):
+        """fetch_articles_for_month should return proper metadata."""
+        import api
+
+        articles, metadata = api.fetch_articles_for_month(
+            year=2024,
+            month=1,
+            dry_run=True,
+        )
+
+        assert "query_hash" in metadata
+        assert len(metadata["query_hash"]) == 16  # Truncated hash
+        assert "query" in metadata
+        assert "date_filter" in metadata
+        assert "fetched_at" in metadata
+        assert metadata["total_count"] == len(articles)
+
+    def test_fetch_articles_for_month_with_custom_query(self):
+        """fetch_articles_for_month should accept custom query."""
+        import api
+
+        custom_query = "trade AND tariff"
+        articles, metadata = api.fetch_articles_for_month(
+            year=2024,
+            month=1,
+            query=custom_query,
+            dry_run=True,
+        )
+
+        assert metadata["query"] == custom_query
+
+
 class TestRateLimiting:
     """Tests for rate limiting behavior."""
 

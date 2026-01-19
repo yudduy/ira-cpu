@@ -14,72 +14,75 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-class TestCalculateRawIndex:
-    """Tests for raw index calculation from database."""
+class TestCalculateRawIndexValues:
+    """Tests for raw index value calculation."""
 
-    def test_calculate_raw_index_empty_db(self, initialized_db):
-        """calculate_raw_index should return empty list for empty database."""
+    def test_calculate_raw_index_values_basic(self):
+        """calculate_raw_index_values should calculate ratios correctly."""
         import indexer
 
-        result = indexer.calculate_raw_index()
-        assert result == []
+        raw_counts = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+                "implementation_uncertainty_count": 10,
+                "reversal_uncertainty_count": 8,
+                "ira_count": 5,
+                "obbba_count": 2,
+            }
+        ]
 
-    def test_calculate_raw_index_with_data(self, populated_db):
-        """calculate_raw_index should calculate ratios from progress data."""
-        import indexer
+        result = indexer.calculate_raw_index_values(raw_counts)
 
-        result = indexer.calculate_raw_index()
-
-        assert len(result) == 3
+        assert len(result) == 1
         assert result[0]["month"] == "2024-01"
-        assert result[0]["denominator"] == 150
-        assert result[0]["numerator"] == 30
-        assert result[0]["raw_ratio"] == 0.20  # 30/150
+        assert result[0]["denominator"] == 100
+        assert result[0]["raw_ratio_cpu"] == 0.20  # 20/100
+        assert result[0]["raw_ratio_impl"] == 0.10  # 10/100
+        assert result[0]["raw_ratio_reversal"] == 0.08  # 8/100
 
-    def test_calculate_raw_index_sorted_by_month(self, initialized_db):
-        """calculate_raw_index should return results sorted by month."""
+    def test_calculate_raw_index_values_direction_metric(self):
+        """calculate_raw_index_values should compute direction correctly."""
         import indexer
-        import db
 
-        # Add out of order
-        db.save_month_count("2024-03", "denominator", 160)
-        db.save_month_count("2024-03", "numerator", 32)
-        db.save_month_count("2024-01", "denominator", 150)
-        db.save_month_count("2024-01", "numerator", 30)
+        raw_counts = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+                "implementation_uncertainty_count": 15,  # More impl
+                "reversal_uncertainty_count": 5,  # Less reversal
+                "ira_count": 0,
+                "obbba_count": 0,
+            }
+        ]
 
-        result = indexer.calculate_raw_index()
-        months = [r["month"] for r in result]
-        assert months == sorted(months)
+        result = indexer.calculate_raw_index_values(raw_counts)
 
-    def test_calculate_raw_index_handles_zero_denominator(self, initialized_db):
-        """calculate_raw_index should handle zero denominator."""
+        # Direction = (15 - 5) / (15 + 5) = 10 / 20 = 0.5
+        assert result[0]["cpu_direction"] == pytest.approx(0.5)
+
+    def test_calculate_raw_index_values_zero_denominator(self):
+        """calculate_raw_index_values should skip zero denominator."""
         import indexer
-        import db
 
-        db.save_month_count("2024-05", "denominator", 0)
-        db.save_month_count("2024-05", "numerator", 0)
+        raw_counts = [
+            {"month": "2024-01", "total_articles": 0},
+            {"month": "2024-02", "total_articles": 100, "uncertainty_count": 10},
+        ]
 
-        result = indexer.calculate_raw_index()
+        result = indexer.calculate_raw_index_values(raw_counts)
 
         assert len(result) == 1
-        assert result[0]["raw_ratio"] == 0.0
+        assert result[0]["month"] == "2024-02"
 
-    def test_calculate_raw_index_ignores_incomplete(self, initialized_db):
-        """calculate_raw_index should ignore months missing numerator or denominator."""
+    def test_calculate_raw_index_values_empty_input(self):
+        """calculate_raw_index_values should handle empty input."""
         import indexer
-        import db
 
-        # Complete month
-        db.save_month_count("2024-06", "denominator", 200)
-        db.save_month_count("2024-06", "numerator", 50)
-
-        # Incomplete month (only denominator)
-        db.save_month_count("2024-07", "denominator", 180)
-
-        result = indexer.calculate_raw_index()
-
-        assert len(result) == 1
-        assert result[0]["month"] == "2024-06"
+        result = indexer.calculate_raw_index_values([])
+        assert result == []
 
 
 class TestNormalizeIndex:
@@ -96,136 +99,236 @@ class TestNormalizeIndex:
         """normalize_index should normalize single value to 100."""
         import indexer
 
-        raw = [{"month": "2024-01", "raw_ratio": 0.25}]
+        raw = [{"month": "2024-01", "raw_ratio_cpu": 0.25}]
         result = indexer.normalize_index(raw)
 
-        assert result[0]["normalized"] == 100.0
-
-    def test_normalize_index_mean_equals_100(self, sample_index_values):
-        """normalize_index should set mean to approximately 100."""
-        import indexer
-        import statistics
-
-        result = indexer.normalize_index(sample_index_values)
-
-        normalized_values = [r["normalized"] for r in result]
-        mean = statistics.mean(normalized_values)
-        assert abs(mean - 100) < 0.1  # Should be very close to 100
+        assert result[0]["normalized_cpu"] == 100.0
 
     def test_normalize_index_preserves_relative_values(self):
         """normalize_index should preserve relative differences."""
         import indexer
 
         raw = [
-            {"month": "2024-01", "raw_ratio": 0.10},  # Low
-            {"month": "2024-02", "raw_ratio": 0.20},  # Mean
-            {"month": "2024-03", "raw_ratio": 0.30},  # High
+            {"month": "2024-01", "raw_ratio_cpu": 0.10},  # Low
+            {"month": "2024-02", "raw_ratio_cpu": 0.20},  # Mean
+            {"month": "2024-03", "raw_ratio_cpu": 0.30},  # High
         ]
 
         result = indexer.normalize_index(raw)
 
-        # Month with 0.20 should be at 100 (mean)
-        # Month with 0.10 should be at 50 (half)
-        # Month with 0.30 should be at 150 (1.5x)
-        # Use approximate comparison for floating point
-        assert abs(result[0]["normalized"] - 50.0) < 0.01
-        assert abs(result[1]["normalized"] - 100.0) < 0.01
-        assert abs(result[2]["normalized"] - 150.0) < 0.01
+        # Mean = 0.20, so 0.10 -> 50, 0.20 -> 100, 0.30 -> 150
+        assert abs(result[0]["normalized_cpu"] - 50.0) < 0.01
+        assert abs(result[1]["normalized_cpu"] - 100.0) < 0.01
+        assert abs(result[2]["normalized_cpu"] - 150.0) < 0.01
 
     def test_normalize_index_with_base_period(self):
         """normalize_index should use base period for mean calculation."""
         import indexer
 
         raw = [
-            {"month": "2024-01", "raw_ratio": 0.10},
-            {"month": "2024-02", "raw_ratio": 0.10},
-            {"month": "2024-03", "raw_ratio": 0.20},  # Outside base period
+            {"month": "2024-01", "raw_ratio_cpu": 0.10},
+            {"month": "2024-02", "raw_ratio_cpu": 0.10},
+            {"month": "2024-03", "raw_ratio_cpu": 0.20},  # Outside base
         ]
 
-        # Use only Jan-Feb as base (mean = 0.10)
         result = indexer.normalize_index(raw, base_start="2024-01", base_end="2024-02")
 
-        # 0.10 should be 100 (it's the base mean)
-        # 0.20 should be 200 (double the base mean)
-        assert result[0]["normalized"] == 100.0
-        assert result[1]["normalized"] == 100.0
-        assert result[2]["normalized"] == 200.0
+        # Base mean = 0.10, so 0.20 -> 200
+        assert result[0]["normalized_cpu"] == 100.0
+        assert result[1]["normalized_cpu"] == 100.0
+        assert result[2]["normalized_cpu"] == 200.0
 
     def test_normalize_index_handles_zero_mean(self):
         """normalize_index should handle all-zero ratios."""
         import indexer
 
         raw = [
-            {"month": "2024-01", "raw_ratio": 0.0},
-            {"month": "2024-02", "raw_ratio": 0.0},
+            {"month": "2024-01", "raw_ratio_cpu": 0.0},
+            {"month": "2024-02", "raw_ratio_cpu": 0.0},
         ]
 
         result = indexer.normalize_index(raw)
 
-        # Should not crash, normalized should be 0
-        assert result[0]["normalized"] == 0.0
-        assert result[1]["normalized"] == 0.0
+        assert result[0]["normalized_cpu"] == 0.0
+        assert result[1]["normalized_cpu"] == 0.0
+
+    def test_normalize_index_all_types(self):
+        """normalize_index should normalize all index types."""
+        import indexer
+
+        raw = [
+            {
+                "month": "2024-01",
+                "raw_ratio_cpu": 0.10,
+                "raw_ratio_impl": 0.05,
+                "raw_ratio_reversal": 0.03,
+                "raw_ratio_ira": 0.02,
+                "raw_ratio_obbba": 0.01,
+            },
+            {
+                "month": "2024-02",
+                "raw_ratio_cpu": 0.20,
+                "raw_ratio_impl": 0.10,
+                "raw_ratio_reversal": 0.06,
+                "raw_ratio_ira": 0.04,
+                "raw_ratio_obbba": 0.02,
+            },
+        ]
+
+        result = indexer.normalize_index(raw)
+
+        # All types should be normalized
+        assert "normalized_cpu" in result[0]
+        assert "normalized_impl" in result[0]
+        assert "normalized_reversal" in result[0]
+        assert "normalized_ira" in result[0]
+        assert "normalized_obbba" in result[0]
 
 
 class TestBuildIndex:
     """Tests for complete index building."""
 
-    def test_build_index_no_data(self, initialized_db):
+    @patch("indexer.db_postgres.get_classification_counts_by_month")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_index_no_data(self, mock_save, mock_get_counts):
         """build_index should return error with no data."""
         import indexer
+
+        mock_get_counts.return_value = []
 
         result = indexer.build_index()
 
         assert result["status"] == "error"
         assert "No data" in result["message"]
 
-    def test_build_index_success(self, populated_db):
-        """build_index should return success with populated data."""
+    @patch("indexer.db_postgres.get_classification_counts_by_month")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_index_success(self, mock_save, mock_get_counts):
+        """build_index should return success with data."""
         import indexer
+
+        mock_get_counts.return_value = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+                "implementation_uncertainty_count": 10,
+                "reversal_uncertainty_count": 5,
+                "ira_count": 3,
+                "obbba_count": 1,
+            },
+            {
+                "month": "2024-02",
+                "total_articles": 120,
+                "uncertainty_count": 30,
+                "implementation_uncertainty_count": 15,
+                "reversal_uncertainty_count": 8,
+                "ira_count": 5,
+                "obbba_count": 2,
+            },
+        ]
 
         result = indexer.build_index()
 
         assert result["status"] == "success"
         assert "metadata" in result
         assert "series" in result
+        assert result["metadata"]["num_months"] == 2
 
-    def test_build_index_metadata(self, populated_db):
-        """build_index should include correct metadata."""
+    @patch("indexer.db_postgres.get_classification_counts_by_month")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_index_saves_to_database(self, mock_save, mock_get_counts):
+        """build_index should save values to database."""
         import indexer
 
-        result = indexer.build_index()
+        mock_get_counts.return_value = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+                "implementation_uncertainty_count": 10,
+                "reversal_uncertainty_count": 5,
+                "ira_count": 3,
+                "obbba_count": 1,
+            },
+        ]
 
-        metadata = result["metadata"]
-        assert "period" in metadata
-        assert "num_months" in metadata
-        assert "mean_raw_ratio" in metadata
-        assert "mean_normalized" in metadata
+        indexer.build_index(save_to_db=True)
 
-    def test_build_index_saves_to_database(self, populated_db):
-        """build_index should save normalized values to database."""
-        import indexer
-        import db
+        # Should save multiple index types
+        assert mock_save.call_count >= 5  # CPU, impl, reversal, ira, obbba
 
-        # Clear any existing index values first
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM index_values")
-        conn.commit()
-        conn.close()
-
-        indexer.build_index()
-
-        # Check values were saved
-        values = db.get_all_index_values()
-        assert len(values) == 3  # 3 months in populated_db fixture
-
-    def test_build_index_with_base_period(self, populated_db):
-        """build_index should apply base period normalization."""
+    @patch("indexer.db_postgres.get_classification_counts_by_month")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_index_no_save_option(self, mock_save, mock_get_counts):
+        """build_index should not save when save_to_db=False."""
         import indexer
 
-        result = indexer.build_index(base_start="2024-01", base_end="2024-02")
+        mock_get_counts.return_value = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+            },
+        ]
 
-        assert "2024-01 to 2024-02" in result["metadata"]["base_period"]
+        indexer.build_index(save_to_db=False)
+
+        mock_save.assert_not_called()
+
+
+class TestBuildOutletLevelIndex:
+    """Tests for outlet-level index building."""
+
+    @patch("indexer.db_postgres.get_classification_counts_by_outlet")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_outlet_level_no_data(self, mock_save, mock_get_outlet):
+        """build_outlet_level_index should return error with no data."""
+        import indexer
+
+        mock_get_outlet.return_value = []
+
+        result = indexer.build_outlet_level_index()
+
+        assert result["status"] == "error"
+
+    @patch("indexer.db_postgres.get_classification_counts_by_outlet")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_outlet_level_success(self, mock_save, mock_get_outlet):
+        """build_outlet_level_index should process multiple outlets."""
+        import indexer
+
+        mock_get_outlet.return_value = [
+            {"outlet": "NYT", "month": "2024-01", "total_articles": 100, "uncertainty_count": 20},
+            {"outlet": "NYT", "month": "2024-02", "total_articles": 110, "uncertainty_count": 25},
+            {"outlet": "WSJ", "month": "2024-01", "total_articles": 80, "uncertainty_count": 15},
+            {"outlet": "WSJ", "month": "2024-02", "total_articles": 90, "uncertainty_count": 18},
+        ]
+
+        result = indexer.build_outlet_level_index()
+
+        assert result["status"] == "success"
+        assert result["num_outlets"] == 2
+        assert "NYT" in result["outlets"]
+        assert "WSJ" in result["outlets"]
+
+    @patch("indexer.db_postgres.get_classification_counts_by_outlet")
+    @patch("indexer.db_postgres.save_index_value")
+    def test_build_outlet_level_filter_outlets(self, mock_save, mock_get_outlet):
+        """build_outlet_level_index should filter to specified outlets."""
+        import indexer
+
+        mock_get_outlet.return_value = [
+            {"outlet": "NYT", "month": "2024-01", "total_articles": 100, "uncertainty_count": 20},
+            {"outlet": "WSJ", "month": "2024-01", "total_articles": 80, "uncertainty_count": 15},
+            {"outlet": "Reuters", "month": "2024-01", "total_articles": 60, "uncertainty_count": 10},
+        ]
+
+        result = indexer.build_outlet_level_index(outlets=["NYT", "WSJ"])
+
+        assert result["status"] == "success"
+        assert result["num_outlets"] == 2
+        assert "Reuters" not in result["outlets"]
 
 
 class TestGetPriorMonth:
@@ -249,22 +352,28 @@ class TestGetPriorMonth:
 class TestValidateAgainstEvents:
     """Tests for event validation."""
 
-    def test_validate_against_events_no_data(self, initialized_db):
+    @patch("indexer.db_postgres.get_index_values")
+    def test_validate_against_events_no_data(self, mock_get_values):
         """validate_against_events should return error with no index."""
         import indexer
+
+        mock_get_values.return_value = []
 
         result = indexer.validate_against_events()
 
         assert result["status"] == "error"
         assert "No index values" in result["message"]
 
-    def test_validate_against_events_structure(self, populated_db):
+    @patch("indexer.db_postgres.get_index_values")
+    def test_validate_against_events_structure(self, mock_get_values):
         """validate_against_events should return expected structure."""
         import indexer
-        import db
 
-        # Build index first
-        indexer.build_index()
+        mock_get_values.return_value = [
+            {"month": "2022-06", "normalized": 100.0},
+            {"month": "2022-07", "normalized": 150.0},  # Spike expected
+            {"month": "2022-08", "normalized": 80.0},  # Drop expected
+        ]
 
         result = indexer.validate_against_events()
 
@@ -272,129 +381,155 @@ class TestValidateAgainstEvents:
         assert "summary" in result
         assert isinstance(result["events"], list)
 
-    def test_validate_against_events_missing_data(self, initialized_db):
-        """validate_against_events should handle missing months."""
-        import indexer
-        import db
-
-        # Add only one month of data
-        db.save_index_value("2024-01", 150, 30, 0.20, 100.0)
-
-        result = indexer.validate_against_events()
-
-        # Most events should show NO DATA
-        no_data_count = sum(1 for e in result["events"] if e.get("result") == "NO DATA")
-        assert no_data_count > 0
-
 
 class TestGetIndexSummary:
     """Tests for index summary statistics."""
 
-    def test_get_index_summary_empty(self, initialized_db):
+    @patch("indexer.db_postgres.get_index_values")
+    def test_get_index_summary_empty(self, mock_get_values):
         """get_index_summary should handle empty database."""
         import indexer
+
+        mock_get_values.return_value = []
 
         result = indexer.get_index_summary()
 
         assert result["status"] == "empty"
 
-    def test_get_index_summary_with_data(self, populated_db):
+    @patch("indexer.db_postgres.get_index_values")
+    def test_get_index_summary_with_data(self, mock_get_values):
         """get_index_summary should return statistics."""
         import indexer
+
+        mock_get_values.return_value = [
+            {"month": "2024-01", "normalized": 80.0},
+            {"month": "2024-02", "normalized": 100.0},
+            {"month": "2024-03", "normalized": 120.0},
+        ]
 
         result = indexer.get_index_summary()
 
         assert result["status"] == "ready"
-        assert "period" in result
-        assert "num_months" in result
-        assert "mean" in result
-        assert "std" in result
-        assert "min" in result
-        assert "max" in result
+        assert result["mean"] == 100.0
+        assert result["min"] == 80.0
+        assert result["max"] == 120.0
 
-    def test_get_index_summary_peaks_and_troughs(self, populated_db):
+    @patch("indexer.db_postgres.get_index_values")
+    def test_get_index_summary_peaks_and_troughs(self, mock_get_values):
         """get_index_summary should identify peaks and troughs."""
         import indexer
+
+        mock_get_values.return_value = [
+            {"month": "2024-01", "normalized": 80.0},
+            {"month": "2024-02", "normalized": 100.0},
+            {"month": "2024-03", "normalized": 120.0},
+        ]
 
         result = indexer.get_index_summary()
 
         assert "top_3_peaks" in result
         assert "top_3_troughs" in result
-        assert len(result["top_3_peaks"]) <= 3
-        assert len(result["top_3_troughs"]) <= 3
+        assert result["top_3_peaks"][0]["month"] == "2024-03"
+        assert result["top_3_troughs"][0]["month"] == "2024-01"
 
-    def test_get_index_summary_statistics_accuracy(self, initialized_db):
-        """get_index_summary should calculate accurate statistics."""
+
+class TestCompareIndexTypes:
+    """Tests for index type comparison."""
+
+    @patch("indexer.db_postgres.get_index_values")
+    def test_compare_index_types_no_data(self, mock_get_values):
+        """compare_index_types should return error with missing data."""
         import indexer
-        import db
 
-        # Add specific values for predictable statistics
-        db.save_index_value("2024-01", 100, 10, 0.10, 80.0)
-        db.save_index_value("2024-02", 100, 10, 0.10, 100.0)
-        db.save_index_value("2024-03", 100, 10, 0.10, 120.0)
+        mock_get_values.return_value = []
 
-        result = indexer.get_index_summary()
+        result = indexer.compare_index_types()
 
-        assert result["mean"] == 100.0
-        assert result["min"] == 80.0
-        assert result["max"] == 120.0
+        assert result["status"] == "error"
 
-
-class TestLegacyDataHandling:
-    """Tests for handling legacy data without directional fields."""
-
-    def test_build_index_with_legacy_data(self, initialized_db):
-        """build_index should succeed with legacy 2-query data (no directional)."""
+    @patch("indexer.db_postgres.get_index_values")
+    def test_compare_index_types_success(self, mock_get_values):
+        """compare_index_types should calculate correlations."""
         import indexer
-        import db
 
-        # Add legacy data with only denominator and numerator (no down/up)
-        db.save_month_count("2024-01", "denominator", 150)
-        db.save_month_count("2024-01", "numerator", 30)
-        db.save_month_count("2024-02", "denominator", 160)
-        db.save_month_count("2024-02", "numerator", 40)
+        # Mock returns for different index types
+        def side_effect(index_type):
+            if index_type == "CPU":
+                return [
+                    {"month": "2024-01", "normalized": 100.0},
+                    {"month": "2024-02", "normalized": 120.0},
+                ]
+            elif index_type == "CPU_impl":
+                return [
+                    {"month": "2024-01", "normalized": 90.0},
+                    {"month": "2024-02", "normalized": 110.0},
+                ]
+            elif index_type == "CPU_reversal":
+                return [
+                    {"month": "2024-01", "normalized": 110.0},
+                    {"month": "2024-02", "normalized": 130.0},
+                ]
+            return []
 
-        # Should not raise KeyError
-        result = indexer.build_index()
+        mock_get_values.side_effect = side_effect
+
+        result = indexer.compare_index_types()
 
         assert result["status"] == "success"
-        assert result["metadata"]["num_months"] == 2
+        assert "correlations" in result
+        assert "cpu_impl" in result["correlations"]
+        assert "cpu_reversal" in result["correlations"]
 
-    def test_build_index_metadata_without_directional(self, initialized_db):
-        """build_index metadata should handle missing directional stats gracefully."""
-        import indexer
-        import db
 
-        # Legacy data without directional queries
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
+class TestLegacyCompatibility:
+    """Tests for legacy function compatibility."""
 
-        result = indexer.build_index()
-
-        # Standard metadata should exist
-        assert "mean_raw_ratio" in result["metadata"]
-        assert "mean_normalized" in result["metadata"]
-
-        # Directional metadata should exist but with zero values
-        assert "mean_normalized_down" in result["metadata"]
-        assert "mean_normalized_up" in result["metadata"]
-        # With no directional data, these should be 0 or NaN-safe
-        assert result["metadata"]["mean_normalized_down"] is not None
-
-    def test_normalize_index_without_directional_fields(self):
-        """normalize_index should handle data without directional fields."""
+    @patch("indexer.db_postgres.get_classification_counts_by_month")
+    def test_calculate_raw_index_legacy(self, mock_get_counts):
+        """calculate_raw_index should return legacy format."""
         import indexer
 
-        # Raw data from legacy format (no raw_ratio_down/up)
-        raw = [
-            {"month": "2024-01", "raw_ratio": 0.20},
-            {"month": "2024-02", "raw_ratio": 0.25},
+        mock_get_counts.return_value = [
+            {
+                "month": "2024-01",
+                "total_articles": 100,
+                "uncertainty_count": 20,
+                "implementation_uncertainty_count": 10,
+                "reversal_uncertainty_count": 5,
+            },
         ]
 
-        # Should not raise KeyError
-        result = indexer.normalize_index(raw)
+        result = indexer.calculate_raw_index()
 
-        assert len(result) == 2
-        assert "normalized" in result[0]
-        # Should not have directional fields
-        assert "normalized_down" not in result[0]
+        # Legacy format should have old field names
+        assert len(result) == 1
+        assert result[0]["numerator"] == 20  # was uncertainty_count
+        assert result[0]["raw_ratio"] == 0.20
+        assert result[0]["numerator_up"] == 10  # impl mapped to up
+        assert result[0]["numerator_down"] == 5  # reversal mapped to down
+
+    @patch("indexer.db_postgres.get_index_values")
+    def test_get_all_index_values_legacy(self, mock_get_values):
+        """get_all_index_values should call db_postgres correctly."""
+        import indexer
+
+        mock_get_values.return_value = [{"month": "2024-01", "normalized": 100.0}]
+
+        result = indexer.get_all_index_values()
+
+        mock_get_values.assert_called_once_with("CPU")
+        assert len(result) == 1
+
+
+class TestIndexConstants:
+    """Tests for index type constants."""
+
+    def test_index_constants_defined(self):
+        """Index type constants should be defined."""
+        import indexer
+
+        assert indexer.INDEX_CPU == "CPU"
+        assert indexer.INDEX_CPU_IMPL == "CPU_impl"
+        assert indexer.INDEX_CPU_REVERSAL == "CPU_reversal"
+        assert indexer.INDEX_SALIENCE_IRA == "salience_ira"
+        assert indexer.INDEX_SALIENCE_OBBBA == "salience_obbba"

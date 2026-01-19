@@ -2,15 +2,13 @@
 Shared pytest fixtures for CPU Index Builder tests.
 
 This module provides common fixtures used across test files:
-- Temporary database for isolation
 - Mock API responses
 - Sample data generators
+- Environment mocks
 """
 
 import os
 import sys
-import sqlite3
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,58 +20,14 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # =============================================================================
-# DATABASE FIXTURES
+# PYTEST CONFIGURATION
 # =============================================================================
 
-@pytest.fixture
-def temp_db_path(tmp_path):
-    """Provide a temporary database path."""
-    db_file = tmp_path / "test_cpu.db"
-    return str(db_file)
-
-
-@pytest.fixture
-def temp_db_config(temp_db_path, monkeypatch):
-    """
-    Patch config.DB_PATH to use temporary database.
-    This ensures tests never touch the real database.
-    """
-    monkeypatch.setattr("config.DB_PATH", temp_db_path)
-    return temp_db_path
-
-
-@pytest.fixture
-def initialized_db(temp_db_config):
-    """
-    Provide an initialized temporary database.
-    Tables are created but empty.
-    """
-    import db
-    db.init_db()
-    return temp_db_config
-
-
-@pytest.fixture
-def populated_db(initialized_db):
-    """
-    Provide a database with sample data for testing.
-    """
-    import db
-
-    # Add sample progress data
-    db.save_month_count("2024-01", "denominator", 150)
-    db.save_month_count("2024-01", "numerator", 30)
-    db.save_month_count("2024-02", "denominator", 180)
-    db.save_month_count("2024-02", "numerator", 45)
-    db.save_month_count("2024-03", "denominator", 160)
-    db.save_month_count("2024-03", "numerator", 32)
-
-    # Add sample index values
-    db.save_index_value("2024-01", 150, 30, 0.20, 100.0)
-    db.save_index_value("2024-02", 180, 45, 0.25, 125.0)
-    db.save_index_value("2024-03", 160, 32, 0.20, 100.0)
-
-    return initialized_db
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "integration: mark test as requiring external services (PostgreSQL, APIs)"
+    )
 
 
 # =============================================================================

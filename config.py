@@ -283,14 +283,148 @@ UPSIDE_TERMS = [
 
 
 # =============================================================================
+# IMPLEMENTATION UNCERTAINTY KEYWORDS (CPU_impl)
+# =============================================================================
+# For CPU_impl index: articles expressing uncertainty about policy IMPLEMENTATION.
+# These indicate delays, unclear guidance, administrative bottlenecks.
+# Based on RA1 spec requirement for implementation vs reversal decomposition.
+#
+# IMPORTANT: These are used WITH uncertainty terms (uncertainty AND implementation)
+# to capture articles about uncertain implementation, not certain delays.
+
+IMPLEMENTATION_TERMS = [
+    # Delays and timing
+    "delay", "delayed", "delays",
+    "pending", "awaiting",
+    "timeline", "schedule",
+    "slow", "slower", "slowly",
+    "backlog", "bottleneck",
+    # Unclear guidance
+    "guidance", "guideline",
+    "clarify", "clarification",
+    "interpret", "interpretation",
+    "rulemaking", "rule-making",
+    "comment period",
+    # Administrative process
+    "processing", "process",
+    "application", "applications",
+    "approval", "approvals",
+    "review", "reviewing",
+    "finalize", "finalizing",
+    "rollout", "roll-out",
+    "phase-in", "phasing in",
+    "effective date",
+]
+
+
+# =============================================================================
+# REVERSAL UNCERTAINTY KEYWORDS (CPU_reversal)
+# =============================================================================
+# For CPU_reversal index: articles expressing uncertainty about policy ROLLBACK.
+# Subset of DOWNSIDE_TERMS focused specifically on reversal/removal actions.
+# Based on RA1 spec requirement for implementation vs reversal decomposition.
+#
+# IMPORTANT: These are used WITH uncertainty terms (uncertainty AND reversal)
+# to capture articles about uncertain rollback, not certain rollback.
+
+REVERSAL_TERMS = [
+    "rollback", "roll back",
+    "repeal", "repealed",
+    "reverse", "reversal",
+    "revoke", "rescind", "rescission",
+    "withdraw", "withdrawal",
+    "eliminate", "elimination",
+    "abolish", "dismantle",
+    "terminate", "cancel",
+    "overturn", "overturned",
+    "invalidate", "strike down",
+    "scrap", "gut", "kill",
+]
+
+
+# =============================================================================
+# POLICY REGIME SALIENCE KEYWORDS
+# =============================================================================
+# For Policy Regime Salience Index: articles mentioning specific policy regimes.
+# Tracks explicit references to IRA or OBBBA regardless of uncertainty.
+
+REGIME_IRA_TERMS = [
+    "Inflation Reduction Act",
+    # Note: "IRA" alone may have false positives (Irish Republican Army)
+    # LLM validation will help identify these
+    "clean energy tax credit",
+    "clean energy tax credits",
+    "369",  # Section 369
+    "45X", "45V", "45Q",  # Specific IRA provisions
+    "30D",  # EV tax credit section
+    "48E",  # Clean electricity ITC
+]
+
+REGIME_OBBBA_TERMS = [
+    "OBBBA",
+    "One Big Beautiful Bill",
+    "Big Beautiful Bill",
+    "reconciliation bill",
+    # Note: "reconciliation" alone too broad, use "reconciliation bill"
+]
+
+
+# =============================================================================
+# PLACEBO INDEX KEYWORDS
+# =============================================================================
+# For placebo/control indices: non-climate policy uncertainty.
+# Used to show that CPU captures climate-SPECIFIC uncertainty.
+
+# Trade Policy Uncertainty (placebo)
+TRADE_TERMS = [
+    "trade", "tariff", "tariffs",
+    "import", "export",
+    "USMCA", "NAFTA",
+    "WTO", "trade war",
+    "trade policy", "trade agreement",
+    "trade deal", "trade talks",
+]
+
+# Monetary Policy Uncertainty (placebo)
+MONETARY_TERMS = [
+    "Federal Reserve", "Fed",
+    "interest rate", "interest rates",
+    "monetary policy",
+    "inflation", "deflation",
+    "quantitative easing", "QE",
+    "tightening", "dovish", "hawkish",
+    "FOMC", "rate hike", "rate cut",
+]
+
+
+# =============================================================================
+# BBD NEWSPAPER OUTLETS (for outlet-level analysis)
+# =============================================================================
+# The 8 newspapers used in Baker, Bloom & Davis (2016) EPU Index.
+# These are used for outlet-level CPU and robustness checks.
+
+BBD_OUTLETS = [
+    "New York Times",
+    "Wall Street Journal",
+    "Boston Globe",
+    "Chicago Tribune",
+    "Los Angeles Times",
+    "Miami Herald",
+    "Tampa Bay Times",
+    "USA Today",
+]
+
+
+# =============================================================================
 # LLM VALIDATION SETTINGS
 # =============================================================================
 # We use GPT-5 Nano to spot-check if our keywords are accurate.
 # This is very cheap (~$0.01 per 100 articles).
 
 LLM_MODEL = "gpt-5-nano"      # Cheapest OpenAI model, great for classification
-LLM_SAMPLE_SIZE = 100         # Articles to classify per validation run
+LLM_SAMPLE_SIZE = 1000        # Initial sample size (adaptive: expand if accuracy < 85%)
 LLM_TEMPERATURE = 0.0         # Deterministic output (no randomness)
+LLM_ACCURACY_THRESHOLD = 0.85 # Minimum accuracy to accept keyword method
 
 
 # =============================================================================
@@ -303,8 +437,20 @@ REQUEST_DELAY_SECONDS = 0.5   # Pause between API calls (be nice to shared quota
 
 
 # =============================================================================
+# DATABASE SETTINGS
+# =============================================================================
+# PostgreSQL connection (use docker-compose up to start database)
+# Override with DATABASE_URL environment variable if needed
+
+import os as _os
+DATABASE_URL = _os.environ.get(
+    "DATABASE_URL",
+    "postgresql://cpu_user:cpu_password@localhost:5433/cpu_index"
+)
+
+
+# =============================================================================
 # FILE PATHS (Advanced - usually don't need to change)
 # =============================================================================
 
-DB_PATH = "data/cpu.db"
 EXPORT_DIR = "data/exports"

@@ -230,8 +230,10 @@ def fetch_count(query: str, date_filter: str = None, dry_run: bool = False) -> i
 
 def fetch_metadata(
     query: str,
+    date_filter: str = None,
     max_results: int = None,
     dry_run: bool = False,
+    progress_callback: callable = None,
 ) -> list[dict]:
     """
     Fetch article metadata (not full text).
@@ -239,8 +241,10 @@ def fetch_metadata(
 
     Args:
         query: Search query string
+        date_filter: Date filter string (e.g., "Date ge 2024-01-01 and Date le 2024-01-31")
         max_results: Maximum articles to fetch (None = all)
         dry_run: If True, return fake data without API call
+        progress_callback: Optional callback function(fetched_count, total_count)
 
     Returns:
         List of article dicts with metadata
@@ -254,6 +258,7 @@ def fetch_metadata(
 
     articles = []
     skip = 0
+    total = None
 
     while True:
         # Build URL
@@ -265,6 +270,11 @@ def fetch_metadata(
             "$orderby": "Date desc",
             "$expand": "Source",  # Include source metadata
         }
+
+        # Add date filter if provided
+        if date_filter:
+            params["$filter"] = date_filter
+
         url = f"{base_url}?{urlencode(params)}"
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -277,6 +287,10 @@ def fetch_metadata(
 
         result = response.json()
         batch = result.get("value", [])
+
+        # Get total count from first response
+        if total is None:
+            total = result.get("@odata.count", 0)
 
         if not batch:
             break
@@ -292,6 +306,10 @@ def fetch_metadata(
             }
             articles.append(article)
 
+        # Report progress if callback provided
+        if progress_callback:
+            progress_callback(len(articles), total)
+
         # Check if we have enough
         if max_results and len(articles) >= max_results:
             articles = articles[:max_results]
@@ -299,11 +317,78 @@ def fetch_metadata(
 
         # Check if there are more results
         skip += config.MAX_RESULTS_PER_QUERY
-        total = result.get("@odata.count", 0)
         if skip >= total:
             break
 
     return articles
+
+
+def fetch_articles_for_month(
+    year: int,
+    month: int,
+    query: str = None,
+    dry_run: bool = False,
+    progress_callback: callable = None,
+) -> tuple[list[dict], dict]:
+    """
+    Fetch all articles matching base query for a given month.
+
+    This is the primary fetch function for the "fetch once, classify locally" strategy.
+    It fetches articles matching (climate AND policy) and stores them for local classification.
+
+    Args:
+        year: Year to fetch
+        month: Month to fetch (1-12)
+        query: Optional custom query (defaults to climate AND policy)
+        dry_run: If True, return fake data without API call
+        progress_callback: Optional callback function(fetched_count, total_count)
+
+    Returns:
+        Tuple of (articles_list, raw_response_metadata)
+        - articles_list: List of article dicts with id, title, date, source, snippet
+        - raw_response_metadata: Dict with query_hash, total_count, fetched_at
+    """
+    import hashlib
+    from datetime import datetime, timezone
+
+    # Build date range
+    start_date, end_date = build_month_dates(year, month)
+    date_filter = build_date_filter(start_date, end_date)
+
+    # Build query (default: climate AND policy - the denominator)
+    if query is None:
+        query = build_search_query(
+            climate_terms=config.CLIMATE_TERMS,
+            policy_terms=config.POLICY_TERMS,
+        )
+
+    # Create query hash for deduplication
+    query_hash = hashlib.sha256(f"{query}|{date_filter}".encode()).hexdigest()[:16]
+
+    # Fetch articles
+    articles = fetch_metadata(
+        query=query,
+        date_filter=date_filter,
+        dry_run=dry_run,
+        progress_callback=progress_callback,
+    )
+
+    # Add month field to each article
+    month_str = f"{year}-{month:02d}"
+    for article in articles:
+        article["month"] = month_str
+
+    # Prepare metadata for raw response storage
+    raw_metadata = {
+        "query_hash": query_hash,
+        "query": query,
+        "date_filter": date_filter,
+        "month": month_str,
+        "total_count": len(articles),
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    return articles, raw_metadata
 
 
 def fetch_full_text(article_ids: list, dry_run: bool = False) -> list:

@@ -5,11 +5,21 @@ __pycache__/
 
 # Data (too large for git)
 data/cpu.db
-data/exports/*.csv
+data/exports/
+
+# Generated outputs
+outputs/
+
+# Docker
+postgres_data/
 
 # IDE
 .vscode/
 .idea/
 
-# Plans (local only)
+# Plans and specs (local only)
 docs/plans/
+docs/specs/
+
+# Context directory
+.context/

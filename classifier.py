@@ -1,10 +1,9 @@
 """
-LLM Classification for CPU Index Builder
+LLM Classification for CPU Index Builder.
 
 Uses GPT-5 Nano via Vercel AI SDK to validate keyword accuracy.
 This is a SAMPLING tool - we don't classify every article.
-
-Cost: ~$0.01 per 100 articles (very cheap!)
+Cost: ~$0.01 per 100 articles.
 """
 
 import os
@@ -13,9 +12,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 import config
-import db
 
-# Check if AI SDK is available
 try:
     from ai_sdk import generate_object, openai
     AI_SDK_AVAILABLE = True
@@ -23,29 +20,23 @@ except ImportError:
     AI_SDK_AVAILABLE = False
     print("Warning: ai-sdk-python not installed. LLM classification disabled.")
 
+INPUT_PRICE_PER_MILLION = 0.05
+OUTPUT_PRICE_PER_MILLION = 0.40
+INPUT_TOKENS_PER_ARTICLE = 500
+OUTPUT_TOKENS_PER_ARTICLE = 100
 
-# =============================================================================
-# STRUCTURED OUTPUT SCHEMA
-# =============================================================================
 
 class ArticleClassification(BaseModel):
-    """Pydantic model for LLM response - ensures valid JSON."""
-    is_climate_policy: bool      # Is this about US climate/energy policy?
-    has_uncertainty: bool        # Does it express policy uncertainty?
-    reasoning: str               # Brief explanation
-    confidence: str              # "high", "medium", "low"
+    """Pydantic model for LLM response."""
 
+    is_climate_policy: bool
+    has_uncertainty: bool
+    reasoning: str
+    confidence: str
 
-# =============================================================================
-# CLASSIFICATION FUNCTIONS
-# =============================================================================
 
 def classify_article(article: dict) -> Optional[ArticleClassification]:
-    """
-    Classify a single article using GPT-5 Nano.
-
-    Returns ArticleClassification or None if AI SDK not available.
-    """
+    """Classify a single article using GPT-5 Nano."""
     if not AI_SDK_AVAILABLE:
         return None
 
@@ -54,29 +45,27 @@ def classify_article(article: dict) -> Optional[ArticleClassification]:
         return None
 
     model = openai(config.LLM_MODEL)
-
     result = generate_object(
         model=model,
         schema=ArticleClassification,
         prompt=_build_prompt(article),
         temperature=config.LLM_TEMPERATURE,
     )
-
     return result.object
 
 
 def _build_prompt(article: dict) -> str:
-    """Build classification prompt."""
+    """Build classification prompt for an article."""
     text = article.get("full_text") or article.get("snippet") or ""
+    truncated_text = text[:2000]
 
-    return f"""
-You are classifying news articles for a Climate Policy Uncertainty Index.
+    return f"""You are classifying news articles for a Climate Policy Uncertainty Index.
 
 ARTICLE:
 - Title: {article.get('title', 'Unknown')}
 - Date: {article.get('date', 'Unknown')}
 - Source: {article.get('source', 'Unknown')}
-- Text: {text[:2000]}  # Truncate to save tokens
+- Text: {truncated_text}
 
 TASK: Answer these questions:
 
@@ -89,13 +78,12 @@ TASK: Answer these questions:
    - NO if policy seems stable/certain
 
 Be concise in your reasoning (1-2 sentences max).
-Set confidence to "high" if clear-cut, "medium" if borderline, "low" if unsure.
-"""
+Set confidence to "high" if clear-cut, "medium" if borderline, "low" if unsure."""
 
 
 def classify_sample(
-    month: str = None,
-    sample_size: int = None,
+    month: Optional[str] = None,
+    sample_size: Optional[int] = None,
     dry_run: bool = False,
 ) -> dict:
     """
@@ -109,44 +97,31 @@ def classify_sample(
     Returns:
         Summary dict with classification results
     """
-    if sample_size is None:
-        sample_size = config.LLM_SAMPLE_SIZE
+    effective_size = sample_size if sample_size is not None else config.LLM_SAMPLE_SIZE
 
     if dry_run:
         return {
-            "sample_size": sample_size,
-            "classified": sample_size,
-            "is_climate_policy_yes": int(sample_size * 0.85),
-            "has_uncertainty_yes": int(sample_size * 0.20),
+            "sample_size": effective_size,
+            "classified": effective_size,
+            "is_climate_policy_yes": int(effective_size * 0.85),
+            "has_uncertainty_yes": int(effective_size * 0.20),
             "dry_run": True,
         }
 
-    # TODO: Implement actual sampling from database
-    # For now, return placeholder
     return {
-        "sample_size": sample_size,
+        "sample_size": effective_size,
         "status": "not_implemented",
         "message": "Full implementation requires articles in database. Run collection first.",
     }
 
 
 def estimate_classification_cost(num_articles: int) -> dict:
-    """
-    Estimate cost before running classification.
+    """Estimate cost before running classification."""
+    total_input = num_articles * INPUT_TOKENS_PER_ARTICLE
+    total_output = num_articles * OUTPUT_TOKENS_PER_ARTICLE
 
-    GPT-5 Nano pricing:
-    - Input: $0.05 per 1M tokens
-    - Output: $0.40 per 1M tokens
-    """
-    # Assumptions
-    input_tokens_per_article = 500   # Prompt + article text
-    output_tokens_per_article = 100  # Classification response
-
-    total_input = num_articles * input_tokens_per_article
-    total_output = num_articles * output_tokens_per_article
-
-    input_cost = (total_input / 1_000_000) * 0.05
-    output_cost = (total_output / 1_000_000) * 0.40
+    input_cost = (total_input / 1_000_000) * INPUT_PRICE_PER_MILLION
+    output_cost = (total_output / 1_000_000) * OUTPUT_PRICE_PER_MILLION
     total_cost = input_cost + output_cost
 
     return {
@@ -160,7 +135,6 @@ def estimate_classification_cost(num_articles: int) -> dict:
 
 def get_validation_status() -> dict:
     """Get current validation status."""
-    # TODO: Query database for classification stats
     return {
         "total_classified": 0,
         "ai_sdk_available": AI_SDK_AVAILABLE,

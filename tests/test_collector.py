@@ -59,46 +59,46 @@ class TestGenerateMonths:
 class TestGetIncompleteMonths:
     """Tests for incomplete month detection."""
 
-    def test_get_incomplete_months_all_incomplete(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_incomplete_months_all_incomplete(self, mock_db, monkeypatch):
         """get_incomplete_months should return all months when none complete."""
         import collector
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-03-31")
 
+        # Mock: No months complete
+        mock_db.get_completed_months.return_value = set()
+
         incomplete = collector.get_incomplete_months()
         assert incomplete == ["2024-01", "2024-02", "2024-03"]
 
-    def test_get_incomplete_months_some_complete(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_incomplete_months_some_complete(self, mock_db, monkeypatch):
         """get_incomplete_months should exclude completed months."""
         import collector
-        import db
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-03-31")
 
-        # Mark January as complete
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
+        # Mock: January is complete
+        mock_db.get_completed_months.return_value = {"2024-01"}
 
         incomplete = collector.get_incomplete_months()
         assert "2024-01" not in incomplete
         assert "2024-02" in incomplete
         assert "2024-03" in incomplete
 
-    def test_get_incomplete_months_all_complete(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_incomplete_months_all_complete(self, mock_db, monkeypatch):
         """get_incomplete_months should return empty when all complete."""
         import collector
-        import db
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-02-28")
 
-        # Mark both months complete
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
-        db.save_month_count("2024-02", "denominator", 110)
-        db.save_month_count("2024-02", "numerator", 25)
+        # Mock: Both months complete
+        mock_db.get_completed_months.return_value = {"2024-01", "2024-02"}
 
         incomplete = collector.get_incomplete_months()
         assert incomplete == []
@@ -107,12 +107,15 @@ class TestGetIncompleteMonths:
 class TestEstimateApiUsage:
     """Tests for API usage estimation."""
 
-    def test_estimate_api_usage_structure(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_estimate_api_usage_structure(self, mock_db, monkeypatch):
         """estimate_api_usage should return dict with expected keys."""
         import collector
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-03-31")
+
+        mock_db.get_completed_months.return_value = set()
 
         estimate = collector.estimate_api_usage()
 
@@ -121,205 +124,54 @@ class TestEstimateApiUsage:
         assert "percent_quota" in estimate
         assert "incomplete_months" in estimate
 
-    def test_estimate_api_usage_calculation(self, initialized_db, monkeypatch):
-        """estimate_api_usage should calculate correctly."""
+    @patch("collector.db_postgres")
+    def test_estimate_api_usage_calculation(self, mock_db, monkeypatch):
+        """estimate_api_usage should calculate correctly (1 search per month)."""
         import collector
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-06-30")
 
+        mock_db.get_completed_months.return_value = set()
+
         estimate = collector.estimate_api_usage()
 
         assert estimate["months"] == 6
-        # 4 searches per month: denominator, numerator, numerator_down, numerator_up
-        assert estimate["searches"] == 24
-        assert estimate["percent_quota"] == 24 / 24000
+        # 1 search per month: fetch all climate+policy articles
+        assert estimate["searches"] == 6
+        assert estimate["percent_quota"] == 6 / 24000
 
-    def test_estimate_api_usage_excludes_complete(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_estimate_api_usage_excludes_complete(self, mock_db, monkeypatch):
         """estimate_api_usage should exclude completed months."""
         import collector
-        import db
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-03-31")
 
-        # Complete 2 months (legacy format with 2 query types)
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
-        db.save_month_count("2024-02", "denominator", 110)
-        db.save_month_count("2024-02", "numerator", 25)
+        # Mock: 2 months complete
+        mock_db.get_completed_months.return_value = {"2024-01", "2024-02"}
 
         estimate = collector.estimate_api_usage()
 
         assert estimate["months"] == 1  # Only March incomplete
-        # 4 searches per month for incomplete months
-        assert estimate["searches"] == 4
-
-
-class TestCollectMonth:
-    """Tests for single month data collection."""
-
-    def test_collect_month_dry_run(self, initialized_db):
-        """collect_month with dry_run should return fake data."""
-        import collector
-
-        result = collector.collect_month(2024, 6, dry_run=True)
-
-        assert result["status"] == "complete"
-        assert result["month"] == "2024-06"
-        assert "denominator" in result
-        assert "numerator" in result
-        assert "numerator_down" in result
-        assert "numerator_up" in result
-        # Note: raw_ratio is calculated in indexer, not collector
-
-    def test_collect_month_skips_complete(self, initialized_db):
-        """collect_month should skip already complete months (legacy format)."""
-        import collector
-        import db
-
-        # Mark month as complete (legacy format with 2 query types)
-        db.save_month_count("2024-07", "denominator", 100)
-        db.save_month_count("2024-07", "numerator", 20)
-
-        result = collector.collect_month(2024, 7, dry_run=True)
-
-        assert result["status"] == "skipped"
-        assert "already complete" in result.get("reason", "")
-
-    def test_collect_month_calls_api(self, initialized_db):
-        """collect_month should call API with correct queries."""
-        import collector
-
-        with patch("collector.api.build_month_dates", return_value=("2024-08-01", "2024-08-31")):
-            with patch("collector.api.build_search_query") as mock_build:
-                with patch("collector.api.fetch_count", return_value=100):
-                    result = collector.collect_month(2024, 8, dry_run=False)
-
-        # Should call build_search_query 4 times:
-        # 1. denominator (climate + policy)
-        # 2. numerator (climate + policy + uncertainty)
-        # 3. numerator_down (+ downside)
-        # 4. numerator_up (+ upside)
-        assert mock_build.call_count == 4
-
-    def test_collect_month_returns_counts(self, initialized_db):
-        """collect_month should return correct counts."""
-        import collector
-
-        with patch("collector.api.build_month_dates", return_value=("2024-09-01", "2024-09-30")):
-            with patch("collector.api.build_search_query", return_value="query"):
-                # 4 values: denom, numer, numer_down, numer_up
-                with patch("collector.api.fetch_count", side_effect=[200, 50, 30, 20]):
-                    result = collector.collect_month(2024, 9, dry_run=False)
-
-        assert result["denominator"] == 200
-        assert result["numerator"] == 50
-        assert result["numerator_down"] == 30
-        assert result["numerator_up"] == 20
-        # Note: raw_ratio is calculated in indexer, not collector
-
-    def test_collect_month_handles_zero_denominator(self, initialized_db):
-        """collect_month should handle zero denominator gracefully."""
-        import collector
-
-        with patch("collector.api.build_month_dates", return_value=("2024-10-01", "2024-10-31")):
-            with patch("collector.api.build_search_query", return_value="query"):
-                # 4 zeros for the 4 fetch_count calls
-                with patch("collector.api.fetch_count", side_effect=[0, 0, 0, 0]):
-                    result = collector.collect_month(2024, 10, dry_run=False)
-
-        assert result["denominator"] == 0
-        assert result["numerator"] == 0
-        # No crash on zero denominator - indexer handles ratio calculation
-
-    def test_collect_month_saves_to_db(self, initialized_db):
-        """collect_month should save results to database."""
-        import collector
-        import db
-
-        with patch("collector.api.build_month_dates", return_value=("2024-11-01", "2024-11-30")):
-            with patch("collector.api.build_search_query", return_value="query"):
-                # 4 values: denom, numer, numer_down, numer_up
-                with patch("collector.api.fetch_count", side_effect=[150, 30, 20, 10]):
-                    collector.collect_month(2024, 11, dry_run=False)
-
-        assert db.get_month_count("2024-11", "denominator") == 150
-        assert db.get_month_count("2024-11", "numerator") == 30
-        assert db.get_month_count("2024-11", "numerator_down") == 20
-        assert db.get_month_count("2024-11", "numerator_up") == 10
-
-    def test_collect_month_handles_api_error(self, initialized_db):
-        """collect_month should handle API errors gracefully."""
-        import collector
-
-        with patch("collector.api.build_month_dates", return_value=("2024-12-01", "2024-12-31")):
-            with patch("collector.api.build_search_query", return_value="query"):
-                with patch("collector.api.fetch_count", side_effect=RuntimeError("API Error")):
-                    result = collector.collect_month(2024, 12, dry_run=False)
-
-        assert result["status"] == "error"
-        assert "API Error" in result["error"]
-
-
-class TestCollectAll:
-    """Tests for batch collection."""
-
-    def test_collect_all_dry_run(self, initialized_db, monkeypatch):
-        """collect_all with dry_run should process without API calls."""
-        import collector
-
-        monkeypatch.setattr("config.START_DATE", "2024-01-01")
-        monkeypatch.setattr("config.END_DATE", "2024-02-28")
-
-        result = collector.collect_all(dry_run=True)
-
-        assert result["months_processed"] == 2
-        assert result["months_complete"] == 2
-        assert result["months_error"] == 0
-
-    def test_collect_all_with_progress_callback(self, initialized_db, monkeypatch):
-        """collect_all should call progress callback."""
-        import collector
-
-        monkeypatch.setattr("config.START_DATE", "2024-01-01")
-        monkeypatch.setattr("config.END_DATE", "2024-02-28")
-
-        callback = MagicMock()
-        collector.collect_all(dry_run=True, progress_callback=callback)
-
-        assert callback.call_count == 2
-        callback.assert_any_call(1, 2, "2024-01")
-        callback.assert_any_call(2, 2, "2024-02")
-
-    def test_collect_all_skips_complete(self, initialized_db, monkeypatch):
-        """collect_all should skip already complete months."""
-        import collector
-        import db
-
-        monkeypatch.setattr("config.START_DATE", "2024-01-01")
-        monkeypatch.setattr("config.END_DATE", "2024-03-31")
-
-        # Complete one month
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
-
-        result = collector.collect_all(dry_run=True)
-
-        # Should process 2 incomplete months, 0 skipped (they won't even be iterated)
-        assert result["months_processed"] == 2
-        assert "2024-01" not in [r["month"] for r in result["results"]]
+        # 1 search per month for incomplete months
+        assert estimate["searches"] == 1
 
 
 class TestGetCollectionStatus:
     """Tests for collection status reporting."""
 
-    def test_get_collection_status_structure(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_collection_status_structure(self, mock_db, monkeypatch):
         """get_collection_status should return expected structure."""
         import collector
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-03-31")
+
+        mock_db.get_completed_months.return_value = set()
+        mock_db.get_collection_progress.return_value = {}
 
         status = collector.get_collection_status()
 
@@ -330,19 +182,20 @@ class TestGetCollectionStatus:
         assert "percent_complete" in status
         assert "next_month" in status
 
-    def test_get_collection_status_values(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_collection_status_values(self, mock_db, monkeypatch):
         """get_collection_status should calculate correct values."""
         import collector
-        import db
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-04-30")
 
-        # Complete 2 of 4 months
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
-        db.save_month_count("2024-02", "denominator", 110)
-        db.save_month_count("2024-02", "numerator", 25)
+        # Mock: 2 of 4 months complete
+        mock_db.get_completed_months.return_value = {"2024-01", "2024-02"}
+        mock_db.get_collection_progress.return_value = {
+            "2024-01": {"articles_fetched": 100},
+            "2024-02": {"articles_fetched": 110},
+        }
 
         status = collector.get_collection_status()
 
@@ -352,18 +205,325 @@ class TestGetCollectionStatus:
         assert status["percent_complete"] == 0.5
         assert status["next_month"] == "2024-03"
 
-    def test_get_collection_status_all_complete(self, initialized_db, monkeypatch):
+    @patch("collector.db_postgres")
+    def test_get_collection_status_all_complete(self, mock_db, monkeypatch):
         """get_collection_status should handle all complete."""
         import collector
-        import db
 
         monkeypatch.setattr("config.START_DATE", "2024-01-01")
         monkeypatch.setattr("config.END_DATE", "2024-01-31")
 
-        db.save_month_count("2024-01", "denominator", 100)
-        db.save_month_count("2024-01", "numerator", 20)
+        mock_db.get_completed_months.return_value = {"2024-01"}
+        mock_db.get_collection_progress.return_value = {
+            "2024-01": {"articles_fetched": 100},
+        }
 
         status = collector.get_collection_status()
 
         assert status["percent_complete"] == 1.0
         assert status["next_month"] is None
+
+
+# =============================================================================
+# Tests for ArticleCollector (fetch once, classify locally)
+# =============================================================================
+
+class TestArticleCollectorInit:
+    """Tests for ArticleCollector initialization."""
+
+    def test_collector_initialization(self):
+        """Collector should initialize with date range."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=6,
+        )
+
+        assert collector.start_year == 2024
+        assert collector.start_month == 1
+        assert collector.end_year == 2024
+        assert collector.end_month == 6
+
+    def test_collector_validates_month_range(self):
+        """Collector should validate month values."""
+        from collector import ArticleCollector
+
+        with pytest.raises(ValueError, match="Month must be between"):
+            ArticleCollector(
+                start_year=2024,
+                start_month=13,
+                end_year=2024,
+                end_month=1,
+            )
+
+    def test_collector_validates_date_range(self):
+        """Collector should validate that end date is after start date."""
+        from collector import ArticleCollector
+
+        with pytest.raises(ValueError, match="End date must be after"):
+            ArticleCollector(
+                start_year=2025,
+                start_month=1,
+                end_year=2024,
+                end_month=12,
+            )
+
+
+class TestArticleCollectorMonthRange:
+    """Tests for ArticleCollector month range generation."""
+
+    def test_collector_generates_month_range(self):
+        """Collector should generate correct month range."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=10,
+            end_year=2025,
+            end_month=2,
+        )
+
+        months = list(collector.get_month_range())
+
+        assert len(months) == 5
+        assert months[0] == (2024, 10)
+        assert months[1] == (2024, 11)
+        assert months[2] == (2024, 12)
+        assert months[3] == (2025, 1)
+        assert months[4] == (2025, 2)
+
+    def test_collector_generates_single_month(self):
+        """Collector should handle single month range."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=6,
+            end_year=2024,
+            end_month=6,
+        )
+
+        months = list(collector.get_month_range())
+
+        assert len(months) == 1
+        assert months[0] == (2024, 6)
+
+
+class TestArticleCollectorDryRun:
+    """Tests for ArticleCollector in dry run mode."""
+
+    def test_collect_month_dry_run(self):
+        """collect_month with dry_run should return fake articles."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=1,
+            dry_run=True,
+        )
+
+        articles = collector.collect_month(2024, 1)
+
+        assert len(articles) > 0
+        assert all("id" in a for a in articles)
+        assert all("month" in a for a in articles)
+
+    def test_collect_all_dry_run(self):
+        """collect_all with dry_run should process all months."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=3,
+            dry_run=True,
+        )
+
+        result = collector.collect_all()
+
+        assert result["months_processed"] == 3
+        assert result["total_articles"] > 0
+
+
+class TestArticleCollectorWithMockedAPI:
+    """Tests for ArticleCollector with mocked API calls."""
+
+    def test_collect_month_calls_api(self, mock_env_vars):
+        """collect_month should call API and return articles."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=1,
+        )
+
+        mock_articles = [
+            {"id": "art_1", "title": "Climate Policy", "date": "2024-01-15",
+             "source": "Reuters", "snippet": "Article about climate policy...",
+             "month": "2024-01"},
+            {"id": "art_2", "title": "Energy Regulation", "date": "2024-01-20",
+             "source": "AP", "snippet": "New energy regulations...",
+             "month": "2024-01"},
+        ]
+        mock_metadata = {
+            "query_hash": "abc123",
+            "month": "2024-01",
+            "total_count": 2,
+            "fetched_at": "2024-01-31T12:00:00",
+        }
+
+        with patch("collector.api.fetch_articles_for_month") as mock_fetch:
+            mock_fetch.return_value = (mock_articles, mock_metadata)
+            articles = collector.collect_month(2024, 1)
+
+        assert len(articles) == 2
+        mock_fetch.assert_called_once_with(
+            year=2024,
+            month=1,
+            dry_run=False,
+            progress_callback=None,
+        )
+
+    def test_collect_month_with_storage(self, mock_env_vars):
+        """collect_month should store articles when db is available."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=1,
+        )
+
+        mock_articles = [
+            {"id": "art_1", "title": "Test", "date": "2024-01-15",
+             "source": "Test", "snippet": "Test", "month": "2024-01"},
+        ]
+        mock_metadata = {"query_hash": "abc", "month": "2024-01", "total_count": 1}
+
+        with patch("collector.api.fetch_articles_for_month") as mock_fetch:
+            with patch("collector.db_postgres.save_articles_batch") as mock_save:
+                with patch("collector.db_postgres.mark_month_complete") as mock_mark:
+                    mock_fetch.return_value = (mock_articles, mock_metadata)
+                    mock_save.return_value = 1
+                    collector.collect_month(2024, 1, store=True)
+
+        mock_save.assert_called_once()
+        mock_mark.assert_called_once_with("2024-01", 1)
+
+
+class TestArticleCollectorClassification:
+    """Tests for local classification during collection."""
+
+    def test_collector_classifies_after_fetch(self, mock_env_vars):
+        """Collector should classify articles after fetching."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=1,
+        )
+
+        mock_articles = [
+            {"id": "art_1", "title": "Uncertain climate policy",
+             "date": "2024-01-15", "source": "Test",
+             "snippet": "Rollback of regulations uncertain", "month": "2024-01"},
+        ]
+        mock_metadata = {"query_hash": "abc", "month": "2024-01", "total_count": 1}
+
+        with patch("collector.api.fetch_articles_for_month") as mock_fetch:
+            with patch("collector.db_postgres.save_articles_batch"):
+                with patch("collector.db_postgres.save_keyword_classifications_batch") as mock_classify:
+                    with patch("collector.db_postgres.mark_month_complete"):
+                        mock_fetch.return_value = (mock_articles, mock_metadata)
+                        collector.collect_month(2024, 1, store=True, classify=True)
+
+        # Should have saved classifications
+        mock_classify.assert_called_once()
+        classifications = mock_classify.call_args[0][0]
+        assert len(classifications) == 1
+        assert classifications[0]["article_id"] == "art_1"
+
+
+class TestArticleCollectorPendingMonths:
+    """Tests for pending months tracking."""
+
+    @patch("collector.db_postgres")
+    def test_get_pending_months_excludes_completed(self, mock_db):
+        """get_pending_months should exclude completed months."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=3,
+        )
+
+        mock_db.get_completed_months.return_value = {"2024-01", "2024-02"}
+
+        pending = collector.get_pending_months()
+
+        assert len(pending) == 1
+        assert pending[0] == (2024, 3)
+
+    @patch("collector.db_postgres")
+    def test_get_pending_months_all_pending(self, mock_db):
+        """get_pending_months should return all when none completed."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=3,
+        )
+
+        mock_db.get_completed_months.return_value = set()
+
+        pending = collector.get_pending_months()
+
+        assert len(pending) == 3
+        assert pending == [(2024, 1), (2024, 2), (2024, 3)]
+
+
+class TestArticleCollectorStatus:
+    """Tests for ArticleCollector status reporting."""
+
+    @patch("collector.db_postgres")
+    def test_get_status_structure(self, mock_db):
+        """get_status should return expected structure."""
+        from collector import ArticleCollector
+
+        collector = ArticleCollector(
+            start_year=2024,
+            start_month=1,
+            end_year=2024,
+            end_month=3,
+        )
+
+        mock_db.get_completed_months.return_value = {"2024-01"}
+        mock_db.get_collection_progress.return_value = {
+            "2024-01": {"articles_fetched": 150}
+        }
+
+        status = collector.get_status()
+
+        assert "total_months" in status
+        assert "completed_months" in status
+        assert "pending_months" in status
+        assert "total_articles_collected" in status
+        assert status["total_months"] == 3
+        assert status["completed_months"] == 1
+        assert status["pending_months"] == 2
+        assert status["total_articles_collected"] == 150
