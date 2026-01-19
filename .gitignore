@@ -5,8 +5,10 @@ __pycache__/
 
 # Data (too large for git)
 data/cpu.db
-data/exports/*.csv
-data/exports/*.parquet
+data/exports/
+
+# Generated outputs
+outputs/
 
 # Docker
 postgres_data/

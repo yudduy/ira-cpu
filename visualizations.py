@@ -134,6 +134,7 @@ def plot_cpu_decomposition(
     index_data: dict,
     output_path: Union[str, Path],
     title: str = "CPU Index Decomposition",
+    events: Optional[list[dict]] = None,
 ) -> Path:
     """
     Figure 2: CPU Decomposition (4-panel faceted).
@@ -148,6 +149,7 @@ def plot_cpu_decomposition(
         index_data: Dict mapping months to {cpu, cpu_impl, cpu_reversal}
         output_path: Path for output PNG
         title: Overall title
+        events: Optional list of event dicts with date, label, color
 
     Returns:
         Path to created file
@@ -206,6 +208,29 @@ def plot_cpu_decomposition(
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
+    # Add event annotations to all panels
+    if events:
+        for event in events:
+            event_date = _month_to_date(event["date"])
+            for ax in axes:
+                ax.axvline(
+                    x=event_date,
+                    color=event.get("color", "gray"),
+                    linestyle="--",
+                    linewidth=1.0,
+                    alpha=0.7,
+                )
+            # Add label only to top panel
+            axes[0].annotate(
+                event["label"],
+                xy=(event_date, axes[0].get_ylim()[1] * 0.95),
+                ha="center",
+                fontsize=8,
+                color=event.get("color", "gray"),
+                rotation=90,
+                va="top",
+            )
+
     fig.suptitle(title, fontsize=16, y=1.02)
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -218,6 +243,7 @@ def plot_direction_balance(
     index_data: dict,
     output_path: Union[str, Path],
     title: str = "Direction Balance: Implementation vs Reversal",
+    events: Optional[list[dict]] = None,
 ) -> Path:
     """
     Figure 3: Direction Balance Metric.
@@ -229,6 +255,7 @@ def plot_direction_balance(
         index_data: Dict mapping months to {cpu_impl, cpu_reversal}
         output_path: Path for output PNG
         title: Chart title
+        events: Optional list of event dicts with date, label, color
 
     Returns:
         Path to created file
@@ -282,6 +309,27 @@ def plot_direction_balance(
     ax.legend(loc="upper left")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    # Add event annotations
+    if events:
+        for event in events:
+            event_date = _month_to_date(event["date"])
+            ax.axvline(
+                x=event_date,
+                color=event.get("color", "gray"),
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
+            )
+            ax.annotate(
+                event["label"],
+                xy=(event_date, 0.85),
+                ha="center",
+                fontsize=9,
+                color=event.get("color", "gray"),
+                rotation=90,
+                va="top",
+            )
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -561,6 +609,7 @@ def plot_article_volume(
     monthly_counts: dict,
     output_path: Union[str, Path],
     title: str = "Monthly Article Volume (Denominator)",
+    events: Optional[list[dict]] = None,
 ) -> Path:
     """
     Figure A5: Article Volume Baseline.
@@ -569,6 +618,7 @@ def plot_article_volume(
         monthly_counts: Dict mapping months to article counts
         output_path: Path for output PNG
         title: Chart title
+        events: Optional list of event dicts with date, label, color
 
     Returns:
         Path to created file
@@ -576,18 +626,40 @@ def plot_article_volume(
     _apply_style()
     output_path = Path(output_path)
 
-    dates = [_month_to_date(m) for m in sorted(monthly_counts.keys())]
-    values = [monthly_counts[m] for m in sorted(monthly_counts.keys())]
+    sorted_months = sorted(monthly_counts.keys())
+    dates = [_month_to_date(m) for m in sorted_months]
+    values = [monthly_counts[m] for m in sorted_months]
 
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    # Bar chart
-    ax.bar(dates, values, width=20, color="#1f77b4", alpha=0.8)
+    # Calculate mean and std for highlighting outliers
+    mean_val = np.mean(values)
+    std_val = np.std(values)
+    threshold = mean_val + 2 * std_val
+
+    # Bar chart with color coding for outliers
+    colors = ["#d62728" if v > threshold else "#1f77b4" for v in values]
+    ax.bar(dates, values, width=20, color=colors, alpha=0.8)
 
     # Mean line
-    mean_val = np.mean(values)
-    ax.axhline(y=mean_val, color="red", linestyle="--", linewidth=1.5,
-               label=f"Mean ({mean_val:.0f})")
+    ax.axhline(y=mean_val, color="gray", linestyle="--", linewidth=1.5,
+               label=f"Mean ({mean_val:,.0f})")
+
+    # 2-sigma threshold line
+    ax.axhline(y=threshold, color="red", linestyle=":", linewidth=1,
+               alpha=0.7, label=f"2σ threshold ({threshold:,.0f})")
+
+    # Add event annotations
+    if events:
+        for event in events:
+            event_date = _month_to_date(event["date"])
+            ax.axvline(
+                x=event_date,
+                color=event.get("color", "gray"),
+                linestyle="--",
+                linewidth=1.0,
+                alpha=0.7,
+            )
 
     # Formatting
     ax.set_xlabel("Date")
@@ -596,7 +668,7 @@ def plot_article_volume(
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
     plt.xticks(rotation=45)
-    ax.legend(loc="upper right")
+    ax.legend(loc="upper left")
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)

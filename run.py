@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
 import collector
+import count_collector
 import indexer
 import db_postgres
 import local_classifier
@@ -88,21 +89,64 @@ def print_menu():
     """)
 
 
+def confirm_action(prompt: str) -> bool:
+    """Prompt user for yes/no confirmation."""
+    response = input(f"\n{prompt} (yes/no): ").strip().lower()
+    if response != "yes":
+        print("\n[X] Cancelled.")
+        return False
+    return True
+
+
+def print_progress_bar(current: int, total: int, label: str = "") -> None:
+    """Print a progress bar to stdout."""
+    bar_len = 30
+    filled = int(bar_len * current / total)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    suffix = f" - {label}" if label else ""
+    print(f"\r[{bar}] {current}/{total}{suffix}", end="", flush=True)
+
+
+def print_collection_sample(results: list) -> None:
+    """Print a sample of successful collection results."""
+    successes = [r for r in results if r.get('status') == 'complete']
+    if not successes:
+        return
+
+    sample = successes[-1]
+    print(f"\n  Sample ({sample['month']}):")
+    print(f"    Denominator: {sample['denominator']:,}")
+    print(f"    CPU numerator: {sample['numerator_cpu']:,}")
+    print(f"    CPU_impl: {sample['numerator_impl']:,}")
+    print(f"    CPU_reversal: {sample['numerator_reversal']:,}")
+
+
+def print_collection_errors(results: list) -> None:
+    """Print any collection errors."""
+    errors = [r for r in results if r.get('status') == 'error']
+    if not errors:
+        return
+
+    print(f"\nErrors encountered: {len(errors)}")
+    for err in errors[:5]:
+        print(f"  - {err['month']}: {err.get('error', 'Unknown error')}")
+
+
 def show_status():
     """Show current collection status."""
     print("\n" + "="*50)
     print("STATUS & PROGRESS")
     print("="*50)
 
-    status = collector.get_collection_status()
+    status = count_collector.get_collection_status()
 
     print(f"\nDate Range: {status['date_range']}")
     print(f"Total Months: {status['total_months']}")
     print(f"Completed: {status['completed_months']} ({status['percent_complete']:.0%})")
-    print(f"Remaining: {status['incomplete_months']}")
+    print(f"Remaining: {status['pending_months']}")
 
-    if status['next_month']:
-        print(f"\nNext month to collect: {status['next_month']}")
+    if status['pending_months'] > 0:
+        print(f"\n{status['pending_months']} months remaining to collect.")
     else:
         print("\n[OK] All months collected!")
 
@@ -124,95 +168,55 @@ def estimate_usage():
     print("API USAGE ESTIMATE")
     print("="*50)
 
-    est = collector.estimate_api_usage()
+    est = count_collector.estimate_api_usage()
 
     print(f"\nMonths to collect: {est['months']}")
-    print(f"Estimated API searches: {est['searches']}")
-    print(f"Percent of annual quota: {est['percent_quota']:.2%}")
-    print(f"  (Stanford limit: 24,000 searches/year shared)")
-
-    if est['months'] > 0:
-        print(f"\nFirst 5 months to collect:")
-        for m in est['incomplete_months'][:5]:
-            print(f"  - {m}")
-        if est['months'] > 5:
-            print(f"  ... and {est['months'] - 5} more")
+    print(f"Estimated API searches: {est['searches']} (4 per month)")
 
 
 def collect_data():
-    """Run data collection with confirmation."""
+    """Run count-based data collection."""
     print("\n" + "="*50)
-    print("DATA COLLECTION")
+    print("DATA COLLECTION (Count-Based)")
     print("="*50)
 
-    # Parse config dates
-    start_parts = config.START_DATE.split("-")
-    end_parts = config.END_DATE.split("-")
-    start_year, start_month = int(start_parts[0]), int(start_parts[1])
-    end_year, end_month = int(end_parts[0]), int(end_parts[1])
+    status = count_collector.get_collection_status()
+    pending = status["pending_months"]
 
-    article_collector = collector.ArticleCollector(
-        start_year=start_year,
-        start_month=start_month,
-        end_year=end_year,
-        end_month=end_month,
-    )
-
-    pending = article_collector.get_pending_months()
-
-    if not pending:
+    if pending == 0:
         print("\n[OK] All months already collected!")
         return
 
-    print(f"\nMonths to collect: {len(pending)}")
-    print(f"Estimated API searches: {len(pending)} (1 per month)")
+    estimate = count_collector.estimate_api_usage()
+
+    print(f"\nMonths to collect: {pending}")
+    print(f"Estimated API searches: {estimate['searches']} (4 per month)")
 
     print("\n[!] This will use your LexisNexis API quota.")
-    print("    Articles will be fetched and classified locally.")
+    print("    Collecting COUNTS for: denominator, CPU, CPU_impl, CPU_reversal")
 
-    confirm = input("\nProceed with collection? (yes/no): ").strip().lower()
-
-    if confirm != "yes":
-        print("\n[X] Collection cancelled.")
+    if not confirm_action("Proceed with collection?"):
         return
 
-    dry_run_input = input("Do a dry run first (no API calls)? (yes/no): ").strip().lower()
-    dry_run = dry_run_input == "yes"
+    dry_run = confirm_action("Do a dry run first (no API calls)?")
 
     if dry_run:
-        print("\n[DRY RUN] Simulating collection without API calls...")
-        article_collector = collector.ArticleCollector(
-            start_year=start_year,
-            start_month=start_month,
-            end_year=end_year,
-            end_month=end_month,
-            dry_run=True,
-        )
+        print("\n[DRY RUN] Simulating collection...")
     else:
         print("\n[LIVE] Starting collection...")
 
-    def progress_callback(current, total, month):
-        bar_len = 30
-        filled = int(bar_len * current / total)
-        bar = "█" * filled + "░" * (bar_len - filled)
-        print(f"\r[{bar}] {current}/{total} - {month}", end="", flush=True)
-
-    result = article_collector.collect_all(
-        store=True,
-        classify=True,
-        progress_callback=progress_callback,
+    result = count_collector.collect_all_counts(
+        dry_run=dry_run,
+        save=True,
+        progress_callback=print_progress_bar,
     )
 
     print("\n")
     print(f"\n[OK] Collection complete!")
-    print(f"  Total articles: {result['total_articles']}")
-    print(f"  Months processed: {len(result['results'])}")
+    print(f"  Months processed: {result['months_processed']}")
 
-    errors = [r for r in result['results'] if r.get('status') == 'error']
-    if errors:
-        print(f"\nErrors encountered: {len(errors)}")
-        for err in errors[:5]:
-            print(f"  - {err['month']}: {err.get('error', 'Unknown error')}")
+    print_collection_sample(result['results'])
+    print_collection_errors(result['results'])
 
 
 def validate_sample():
@@ -248,27 +252,18 @@ def validate_sample():
     print(f"Estimated cost: ${cost_est['estimated_cost_usd']:.4f}")
     print(f"  (GPT-5-nano: ~$0.05/1M input, $0.40/1M output)")
 
-    confirm = input("\nRun validation? (yes/no): ").strip().lower()
-
-    if confirm != "yes":
-        print("\n[X] Validation cancelled.")
+    if not confirm_action("Run validation?"):
         return
 
     print("\nRunning LLM validation...")
 
     import llm_validator
 
-    def progress_callback(current, total):
-        bar_len = 30
-        filled = int(bar_len * current / total)
-        bar = "█" * filled + "░" * (bar_len - filled)
-        print(f"\r[{bar}] {current}/{total}", end="", flush=True)
-
     result = llm_validator.run_validation(
         articles=articles,
         initial_sample_size=sample_size,
         accuracy_threshold=config.LLM_ACCURACY_THRESHOLD,
-        progress_callback=progress_callback,
+        progress_callback=print_progress_bar,
     )
 
     print("\n")
@@ -290,7 +285,7 @@ def build_index():
     print("BUILD CPU INDEX")
     print("="*50)
 
-    status = collector.get_collection_status()
+    status = count_collector.get_collection_status()
 
     if status['completed_months'] == 0:
         print("\n[!] No data collected yet.")
@@ -456,8 +451,8 @@ def generate_visualizations():
 
     paths = []
     paths.append(plot_cpu_timeseries(index_data, HEADLINE_EVENTS, os.path.join(output_dir, "fig1_cpu_timeseries.png")))
-    paths.append(plot_cpu_decomposition(index_data, os.path.join(output_dir, "fig2_cpu_decomposition.png")))
-    paths.append(plot_direction_balance(index_data, os.path.join(output_dir, "fig3_direction_balance.png")))
+    paths.append(plot_cpu_decomposition(index_data, os.path.join(output_dir, "fig2_cpu_decomposition.png"), events=HEADLINE_EVENTS))
+    paths.append(plot_direction_balance(index_data, os.path.join(output_dir, "fig3_direction_balance.png"), events=HEADLINE_EVENTS))
     paths.append(plot_outlet_correlation_heatmap(outlet_indices, os.path.join(output_dir, "figA1_outlet_heatmap.png")))
 
     volume_data = {m: d.get("denominator", 0) for m, d in index_data.items()}

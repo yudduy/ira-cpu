@@ -15,7 +15,6 @@ All indices normalized so base period mean = 100.
 """
 
 import statistics
-from typing import Optional
 
 import db_postgres
 import normalizer
@@ -29,9 +28,25 @@ INDEX_SALIENCE_IRA = "salience_ira"  # IRA mentions
 INDEX_SALIENCE_OBBBA = "salience_obbba"  # OBBBA mentions
 
 
+def _map_count_row_to_raw_counts(row: dict) -> dict:
+    """Map a monthly_counts row to the raw counts format."""
+    return {
+        "month": row["month"],
+        "total_articles": row["denominator"],
+        "uncertainty_count": row["numerator_cpu"],
+        "implementation_uncertainty_count": row["numerator_impl"],
+        "reversal_uncertainty_count": row["numerator_reversal"],
+        "ira_count": 0,
+        "obbba_count": 0,
+    }
+
+
 def calculate_raw_counts() -> list[dict]:
     """
     Get raw classification counts from database.
+
+    Prefers count-based data (from monthly_counts table) if available,
+    otherwise falls back to article-based classification data.
 
     Returns list of dicts with:
     - month
@@ -39,9 +54,21 @@ def calculate_raw_counts() -> list[dict]:
     - uncertainty_count (CPU numerator)
     - implementation_uncertainty_count (CPU_impl numerator)
     - reversal_uncertainty_count (CPU_reversal numerator)
-    - ira_count, obbba_count (salience indices)
+    - ira_count, obbba_count (salience indices, only for article-based)
     """
+    count_data = db_postgres.get_monthly_counts()
+    if count_data:
+        return [_map_count_row_to_raw_counts(row) for row in count_data]
+
     return db_postgres.get_classification_counts_by_month()
+
+
+def _calculate_direction_metric(impl_count: int, reversal_count: int) -> float:
+    """Calculate directional balance: (impl - reversal) / (impl + reversal)."""
+    total = impl_count + reversal_count
+    if total == 0:
+        return 0.0
+    return (impl_count - reversal_count) / total
 
 
 def calculate_raw_index_values(raw_counts: list[dict]) -> list[dict]:
@@ -57,46 +84,34 @@ def calculate_raw_index_values(raw_counts: list[dict]) -> list[dict]:
     results = []
 
     for record in raw_counts:
-        month = record["month"]
         denominator = record.get("total_articles", 0)
-
         if denominator == 0:
             continue
 
-        # Calculate ratios for each index type
-        cpu_ratio = record.get("uncertainty_count", 0) / denominator
-        cpu_impl_ratio = record.get("implementation_uncertainty_count", 0) / denominator
-        cpu_reversal_ratio = record.get("reversal_uncertainty_count", 0) / denominator
-        ira_ratio = record.get("ira_count", 0) / denominator
-        obbba_ratio = record.get("obbba_count", 0) / denominator
-
-        # Calculate direction metric
+        # Extract counts once
+        cpu_count = record.get("uncertainty_count", 0)
         impl_count = record.get("implementation_uncertainty_count", 0)
         reversal_count = record.get("reversal_uncertainty_count", 0)
-        total_directional = impl_count + reversal_count
-
-        if total_directional > 0:
-            direction = (impl_count - reversal_count) / total_directional
-        else:
-            direction = 0.0
+        ira_count = record.get("ira_count", 0)
+        obbba_count = record.get("obbba_count", 0)
 
         results.append({
-            "month": month,
+            "month": record["month"],
             "denominator": denominator,
-            # CPU counts
-            "numerator_cpu": record.get("uncertainty_count", 0),
-            "numerator_impl": record.get("implementation_uncertainty_count", 0),
-            "numerator_reversal": record.get("reversal_uncertainty_count", 0),
-            "numerator_ira": record.get("ira_count", 0),
-            "numerator_obbba": record.get("obbba_count", 0),
+            # Numerators
+            "numerator_cpu": cpu_count,
+            "numerator_impl": impl_count,
+            "numerator_reversal": reversal_count,
+            "numerator_ira": ira_count,
+            "numerator_obbba": obbba_count,
             # Raw ratios
-            "raw_ratio_cpu": cpu_ratio,
-            "raw_ratio_impl": cpu_impl_ratio,
-            "raw_ratio_reversal": cpu_reversal_ratio,
-            "raw_ratio_ira": ira_ratio,
-            "raw_ratio_obbba": obbba_ratio,
+            "raw_ratio_cpu": cpu_count / denominator,
+            "raw_ratio_impl": impl_count / denominator,
+            "raw_ratio_reversal": reversal_count / denominator,
+            "raw_ratio_ira": ira_count / denominator,
+            "raw_ratio_obbba": obbba_count / denominator,
             # Direction metric
-            "cpu_direction": direction,
+            "cpu_direction": _calculate_direction_metric(impl_count, reversal_count),
         })
 
     return results
@@ -233,19 +248,22 @@ def build_index(
 
     # Calculate statistics for each index type
     stats = {}
-    for name, raw_key, norm_key in [
+    index_stat_keys = [
         ("cpu", "raw_ratio_cpu", "normalized_cpu"),
         ("impl", "raw_ratio_impl", "normalized_impl"),
         ("reversal", "raw_ratio_reversal", "normalized_reversal"),
         ("ira", "raw_ratio_ira", "normalized_ira"),
         ("obbba", "raw_ratio_obbba", "normalized_obbba"),
-    ]:
+    ]
+    for name, raw_key, norm_key in index_stat_keys:
         if raw_key in normalized[0]:
+            raw_stats = calc_stats([v.get(raw_key, 0) for v in normalized])
+            norm_stats = calc_stats([v.get(norm_key, 0) for v in normalized])
             stats[name] = {
-                "mean_raw": calc_stats([v.get(raw_key, 0) for v in normalized])["mean"],
-                "std_raw": calc_stats([v.get(raw_key, 0) for v in normalized])["std"],
-                "mean_norm": calc_stats([v.get(norm_key, 0) for v in normalized])["mean"],
-                "std_norm": calc_stats([v.get(norm_key, 0) for v in normalized])["std"],
+                "mean_raw": raw_stats["mean"],
+                "std_raw": raw_stats["std"],
+                "mean_norm": norm_stats["mean"],
+                "std_norm": norm_stats["std"],
             }
 
     # Direction statistics

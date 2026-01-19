@@ -181,6 +181,18 @@ def init_db():
                 )
             """)
 
+            # Monthly counts (count-based collection)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS monthly_counts (
+                    month VARCHAR(7) PRIMARY KEY,
+                    denominator INTEGER NOT NULL,
+                    numerator_cpu INTEGER NOT NULL,
+                    numerator_impl INTEGER NOT NULL,
+                    numerator_reversal INTEGER NOT NULL,
+                    collected_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+
 
 # =============================================================================
 # RAW RESPONSE OPERATIONS
@@ -799,3 +811,53 @@ def export_index_to_csv(
             writer.writerow(dict(row))
 
     return len(rows)
+
+
+# =============================================================================
+# MONTHLY COUNTS OPERATIONS (Count-based collection)
+# =============================================================================
+
+def save_monthly_counts(counts: dict):
+    """
+    Save monthly counts from count-based collection.
+
+    Args:
+        counts: Dict with month, denominator, numerator_cpu, numerator_impl, numerator_reversal
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO monthly_counts
+                (month, denominator, numerator_cpu, numerator_impl, numerator_reversal)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (month) DO UPDATE SET
+                    denominator = EXCLUDED.denominator,
+                    numerator_cpu = EXCLUDED.numerator_cpu,
+                    numerator_impl = EXCLUDED.numerator_impl,
+                    numerator_reversal = EXCLUDED.numerator_reversal,
+                    collected_at = NOW()
+            """, (
+                counts["month"],
+                counts["denominator"],
+                counts["numerator_cpu"],
+                counts["numerator_impl"],
+                counts["numerator_reversal"],
+            ))
+
+
+def get_monthly_counts() -> list[dict]:
+    """Get all monthly counts for index calculation."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT * FROM monthly_counts ORDER BY month
+            """)
+            return [dict(row) for row in cur.fetchall()]
+
+
+def get_completed_count_months() -> set[str]:
+    """Get set of months that have count data."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT month FROM monthly_counts")
+            return {row[0] for row in cur.fetchall()}
