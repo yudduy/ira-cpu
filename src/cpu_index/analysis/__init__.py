@@ -22,3 +22,23 @@ from .vc_visualizations import (
     plot_stage_distribution,
     save_all_visualizations,
 )
+from .sector_analysis import (
+    analyze_sector_cpu_correlation,
+    analyze_all_sectors,
+    analyze_cpu_decomposition,
+    stratify_by_ira_exposure,
+    run_classifier_robustness,
+)
+from .vc_aggregator import (
+    aggregate_monthly,
+    aggregate_by_category_monthly,
+    aggregate_by_subtopic_monthly,
+    create_analysis_dataset,
+)
+from .sector_visualizations import (
+    plot_sector_correlation_heatmap,
+    plot_sector_timeseries,
+    plot_sensitivity_ranking,
+    plot_decomposition_comparison,
+    save_sector_visualizations,
+)

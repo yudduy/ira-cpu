@@ -126,6 +126,88 @@ def create_analysis_dataset(
     return merged
 
 
+def aggregate_by_category_monthly(
+    df: pd.DataFrame,
+    category_column: str = 'judge_category'
+) -> pd.DataFrame:
+    """
+    Aggregate VC deals by month and category with full statistics.
+
+    Args:
+        df: DataFrame with VC deals (must have category_column, YearMonth, Deal Size, Stage)
+        category_column: Column containing sector/category classification
+
+    Returns:
+        DataFrame with MultiIndex (month, category) and columns:
+        deal_count, total_amount, median_amount, seed_count, early_count,
+        late_count, size_coverage_pct
+    """
+    # Ensure required columns exist
+    required = [category_column, 'YearMonth']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    # Group by YearMonth and category
+    grouped = df.groupby(['YearMonth', category_column])
+
+    # Aggregate with same metrics as aggregate_monthly
+    monthly = grouped.agg(
+        deal_count=('Company ID', 'count'),
+        total_amount=('Total Raised', lambda x: pd.to_numeric(x, errors='coerce').sum()),
+        median_amount=('Total Raised', lambda x: pd.to_numeric(x, errors='coerce').median()),
+        deals_with_size=('Total Raised', lambda x: pd.to_numeric(x, errors='coerce').notna().sum()),
+    )
+
+    # Handle Stage column if present
+    if 'Stage' in df.columns:
+        stage_counts = grouped['Stage'].apply(
+            lambda x: pd.Series({
+                'seed_count': (x == 'Seed').sum(),
+                'early_count': (x == 'Early').sum(),
+                'late_count': (x == 'Late').sum()
+            })
+        )
+        monthly = monthly.join(stage_counts)
+    else:
+        monthly['seed_count'] = 0
+        monthly['early_count'] = 0
+        monthly['late_count'] = 0
+
+    # Calculate size coverage percentage
+    monthly['size_coverage_pct'] = np.where(
+        monthly['deal_count'] > 0,
+        100 * monthly['deals_with_size'] / monthly['deal_count'],
+        0
+    )
+
+    # Convert Period index to timestamp
+    monthly = monthly.reset_index()
+    monthly['YearMonth'] = monthly['YearMonth'].dt.to_timestamp()
+    monthly = monthly.rename(columns={'YearMonth': 'month'})
+    monthly = monthly.set_index(['month', category_column])
+
+    return monthly
+
+
+def aggregate_by_subtopic_monthly(
+    df: pd.DataFrame,
+    subtopic_column: str = 'Semantic_Subtopic'
+) -> pd.DataFrame:
+    """
+    Aggregate VC deals by month and subtopic with full statistics.
+
+    Args:
+        df: DataFrame with VC deals (must have subtopic_column)
+        subtopic_column: Column containing subtopic classification
+
+    Returns:
+        DataFrame with MultiIndex (month, subtopic) and same columns as
+        aggregate_by_category_monthly()
+    """
+    return aggregate_by_category_monthly(df, category_column=subtopic_column)
+
+
 def compute_rolling_stats(
     df: pd.DataFrame,
     window: int = 12,

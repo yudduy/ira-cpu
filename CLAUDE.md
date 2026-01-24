@@ -62,6 +62,7 @@ src/cpu_index/
 scripts/                   # Standalone scripts (no DB required)
 ├── collect_cpu_data.py    # Direct API collection to CSV
 ├── run_cpu_vc_analysis.py # CPU-VC correlation analysis
+├── run_sector_cpu_analysis.py  # Sector-specific CPU-VC analysis
 └── generate_publication_figures.py  # Publication figures with annotations
 ```
 
@@ -76,6 +77,18 @@ scripts/                   # Standalone scripts (no DB required)
 - **CPU_impl**: Implementation uncertainty (uncertainty + implementation terms)
 - **CPU_reversal**: Reversal uncertainty (uncertainty + reversal terms)
 - **Salience indices**: IRA/OBBBA mentions (no uncertainty required)
+
+### Sector-Specific Analysis
+Identifies "dark spots" - climate tech sectors most affected by policy uncertainty:
+```bash
+PYTHONPATH=src python scripts/run_sector_cpu_analysis.py --output outputs/sector_analysis
+```
+
+Output includes:
+- `sector_rankings.csv`: Sectors ranked by CPU sensitivity
+- `decomposition.csv`: CPU_impl vs CPU_reversal sensitivity per sector
+- `ira_stratification.csv`: High-IRA vs Low-IRA exposure comparison
+- PNG visualizations: heatmap, timeseries, ranking charts
 
 ### Classification Logic (Steve's Fix)
 Direction terms alone do NOT indicate uncertainty. Requires BOTH:
