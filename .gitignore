@@ -10,10 +10,15 @@ data/
 *.csv
 !.env.example
 
-# Generated outputs
+# Generated outputs (temporary)
 outputs/
 exports_*/
 *.zip
+
+# Keep deliverables folder for version control
+!exports/
+!exports/deliverables/
+!exports/deliverables/**
 
 # Testing & Coverage
 .coverage

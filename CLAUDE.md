@@ -63,7 +63,15 @@ scripts/                   # Standalone scripts (no DB required)
 ├── collect_cpu_data.py    # Direct API collection to CSV
 ├── run_cpu_vc_analysis.py # CPU-VC correlation analysis
 ├── run_sector_cpu_analysis.py  # Sector-specific CPU-VC analysis
+├── generate_sector_figures.py  # Enhanced sector visualizations
+├── compare_ira_vs_full.py # IRA era vs full sample comparison
 └── generate_publication_figures.py  # Publication figures with annotations
+
+exports/deliverables/      # Deliverables for paper
+├── sector_analysis_synopsis.tex  # LaTeX synopsis
+├── figures/               # Publication-ready PNGs (300 DPI)
+├── data/                  # Analysis output CSVs
+└── README.md              # Contents guide
 ```
 
 ### Data Flow
@@ -81,14 +89,30 @@ scripts/                   # Standalone scripts (no DB required)
 ### Sector-Specific Analysis
 Identifies "dark spots" - climate tech sectors most affected by policy uncertainty:
 ```bash
+# IRA era analysis (2021+)
 PYTHONPATH=src python scripts/run_sector_cpu_analysis.py --output outputs/sector_analysis
+
+# Full sample analysis (2008+) for robustness
+PYTHONPATH=src python scripts/run_sector_cpu_analysis.py --start-date 2008-01-01 --output outputs/sector_analysis_full_sample
+
+# Enhanced visualizations with interpretation
+PYTHONPATH=src python scripts/generate_sector_figures.py
+
+# IRA vs Full sample comparison
+PYTHONPATH=src python scripts/compare_ira_vs_full.py
 ```
 
 Output includes:
 - `sector_rankings.csv`: Sectors ranked by CPU sensitivity
 - `decomposition.csv`: CPU_impl vs CPU_reversal sensitivity per sector
 - `ira_stratification.csv`: High-IRA vs Low-IRA exposure comparison
-- PNG visualizations: heatmap, timeseries, ranking charts
+- PNG visualizations: heatmap, timeseries, ranking, mechanism diagrams
+
+**Key Findings (IRA Era 2021-2025)**:
+- Industrial is the ONLY sector dominated by implementation uncertainty
+- Energy, Built Env, Food, Climate Mgmt show CPU→VC suppression
+- Correlations 2-3x stronger than full sample (structural break)
+- High-IRA companies more sensitive to CPU in IRA era
 
 ### Classification Logic (Steve's Fix)
 Direction terms alone do NOT indicate uncertainty. Requires BOTH:

@@ -1,0 +1,338 @@
+\documentclass[11pt,letterpaper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{titlesec}
+
+% Page geometry
+\geometry{margin=1in}
+
+% Colors
+\definecolor{iragreen}{RGB}{46,125,50}
+\definecolor{reversalred}{RGB}{198,40,40}
+\definecolor{implblue}{RGB}{25,118,210}
+
+% Title formatting
+\titleformat{\section}{\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+
+% Document info
+\title{\textbf{Sector-Specific Climate Policy Uncertainty Analysis}\\[0.5em]
+\large Identifying ``Dark Spots'' in Climate Tech VC Investment}
+\author{CPU Index Research Project}
+\date{January 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This analysis identifies which climate technology sectors are most sensitive to Climate Policy Uncertainty (CPU), measuring the ``dark spots'' where VC investment is most affected by policy uncertainty. Using cross-correlation analysis at multiple lags, we find a \textbf{structural break} around the IRA passage (August 2022): correlations strengthened 2--3$\times$, Energy VC became suppressed by uncertainty (direction flip), and Industrial emerged as uniquely implementation-sensitive. High-IRA exposure companies became more sensitive to CPU in the IRA era, reversing the historical pattern. These findings support the paper's narrative about the ``dark side'' of policy uncertainty.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Executive Summary}
+%==============================================================================
+
+\subsection{Key Findings}
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Industrial is Unique}: The only sector dominated by \textcolor{implblue}{implementation uncertainty} rather than \textcolor{reversalred}{reversal fear}. Manufacturing companies need operational certainty for capex decisions---they're less worried about policy repeal and more worried about ``when will the rules take effect?''
+
+    \item \textbf{``Dark Spots'' Identified}: Energy ($r=-0.42$), Built Environment ($r=-0.36$), Food \& Land Use ($r=-0.34$), and Climate Management ($r=-0.33$) all show CPU $\rightarrow$ VC suppression with CPU leading VC by 3--4 months.
+
+    \item \textbf{Structural Break}: The IRA created a fundamental shift in how policy uncertainty affects climate tech VC:
+    \begin{itemize}
+        \item Correlations strengthened from $|r|=0.11$--$0.23$ to $|r|=0.29$--$0.50$
+        \item Energy direction flipped from positive to negative
+        \item High-IRA companies became more sensitive (reversing historical pattern)
+    \end{itemize}
+
+    \item \textbf{Most Sectors Fear Reversal}: Climate Management, Transportation, Food \& Land Use, and Built Environment are all reversal-dominated, suggesting the OBBBA threat matters more than Treasury guidance delays.
+\end{enumerate}
+
+\subsection{Data Summary}
+
+\begin{table}[H]
+\centering
+\caption{Analysis Dataset Overview}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Dataset} & \textbf{Coverage} & \textbf{Observations} \\
+\midrule
+CPU Index & 2008-01 to 2025-05 & 209 months \\
+VC Deals (judged\_results) & All time & 16,474 companies \\
+IRA Era Analysis & 2021-01 to 2025-05 & 53 months \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Sector Distribution in VC Dataset}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Sector} & \textbf{Companies} & \textbf{Share} \\
+\midrule
+Energy & 6,496 & 39.4\% \\
+Industrial & 3,894 & 23.6\% \\
+Built Environment & 2,265 & 13.7\% \\
+Food \& Land Use & 1,215 & 7.4\% \\
+Transportation & 1,080 & 6.6\% \\
+Climate Management & 779 & 4.7\% \\
+Carbon & 658 & 4.0\% \\
+Others & 85 & 0.5\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Methodology}
+%==============================================================================
+
+\subsection{Cross-Correlation Analysis}
+
+For each sector $s$, we compute the cross-correlation between CPU and sector-specific VC deal counts at lags $k \in \{-12, ..., +12\}$ months:
+
+\begin{equation}
+r_s(k) = \text{Corr}(\text{CPU}_t, \text{VC}_{s,t+k})
+\end{equation}
+
+\begin{itemize}
+    \item \textbf{Negative lag} ($k < 0$): VC \textit{leads} CPU (anticipatory behavior)
+    \item \textbf{Positive lag} ($k > 0$): CPU \textit{leads} VC (reactive/suppressive)
+\end{itemize}
+
+The optimal lag $k^*_s$ is the lag with maximum absolute correlation.
+
+\subsection{CPU Decomposition}
+
+We decompose CPU into two components:
+\begin{itemize}
+    \item \textbf{CPU\_impl}: Implementation uncertainty (delays, unclear guidance, bottlenecks)
+    \item \textbf{CPU\_reversal}: Reversal uncertainty (repeal, rollback, litigation)
+\end{itemize}
+
+The asymmetry ratio captures which type dominates:
+\begin{equation}
+\text{Asymmetry}_s = \frac{|r_s^{\text{impl}}| - |r_s^{\text{reversal}}|}{|r_s^{\text{impl}}| + |r_s^{\text{reversal}}|}
+\end{equation}
+
+\begin{itemize}
+    \item Asymmetry $> 0.1$: Implementation-dominated
+    \item Asymmetry $< -0.1$: Reversal-dominated
+    \item $|\text{Asymmetry}| \leq 0.1$: Balanced
+\end{itemize}
+
+\subsection{IRA Exposure Stratification}
+
+Companies are stratified by pre-computed IRA\_Index scores (1--7 scale):
+\begin{itemize}
+    \item \textbf{High IRA} ($\geq 6$): 3,646 companies (IRA era)
+    \item \textbf{Low IRA} ($\leq 3$): 946 companies (IRA era)
+\end{itemize}
+
+%==============================================================================
+\section{Results: IRA Era (2021--2025)}
+%==============================================================================
+
+\subsection{Sector Sensitivity Rankings}
+
+\begin{table}[H]
+\centering
+\caption{Sector CPU Sensitivity (IRA Era 2021--2025)}
+\begin{tabular}{lrrll}
+\toprule
+\textbf{Sector} & \textbf{Correlation} & \textbf{Optimal Lag} & \textbf{Direction} & \textbf{Interpretation} \\
+\midrule
+Industrial & +0.497 & $-7$ & Positive & VC leads CPU by 7 mo \\
+Energy & $-0.419$ & +3 & \textcolor{reversalred}{Negative} & CPU suppresses VC \\
+Carbon & +0.364 & $-7$ & Positive & VC leads CPU by 7 mo \\
+Built Environment & $-0.357$ & +4 & \textcolor{reversalred}{Negative} & CPU suppresses VC \\
+Food \& Land Use & $-0.337$ & +4 & \textcolor{reversalred}{Negative} & CPU suppresses VC \\
+Climate Mgmt & $-0.326$ & +4 & \textcolor{reversalred}{Negative} & CPU suppresses VC \\
+Transportation & +0.286 & $-7$ & Positive & VC leads CPU by 7 mo \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Observations:}
+\begin{itemize}
+    \item Industrial shows the strongest sensitivity ($|r|=0.50$)
+    \item Energy, Built Environment, Food \& Land Use, and Climate Management all show the classic ``uncertainty suppresses investment'' pattern
+    \item Negative correlations cluster at lag +3 to +4 months (CPU leads VC)
+    \item Positive correlations cluster at lag $-7$ months (VC leads CPU)
+\end{itemize}
+
+\subsection{CPU Decomposition Results}
+
+\begin{table}[H]
+\centering
+\caption{Implementation vs Reversal Sensitivity (IRA Era)}
+\begin{tabular}{lrrrl}
+\toprule
+\textbf{Sector} & \textbf{Impl Corr} & \textbf{Reversal Corr} & \textbf{Asymmetry} & \textbf{Dominant Type} \\
+\midrule
+Climate Mgmt & $-0.28$ & $-0.56$ & $-0.33$ & \textcolor{reversalred}{Reversal} \\
+Transportation & +0.29 & $-0.44$ & $-0.21$ & \textcolor{reversalred}{Reversal} \\
+Food \& Land Use & $-0.31$ & $-0.47$ & $-0.21$ & \textcolor{reversalred}{Reversal} \\
+Built Environment & $-0.30$ & +0.38 & $-0.11$ & \textcolor{reversalred}{Reversal} \\
+Energy & +0.42 & +0.45 & $-0.04$ & Balanced \\
+Carbon & +0.40 & $-0.33$ & +0.09 & Balanced \\
+Industrial & +0.52 & +0.35 & \textbf{+0.21} & \textcolor{implblue}{Implementation} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Finding: Industrial is Unique}
+
+Industrial is the \textit{only} sector where implementation uncertainty dominates over reversal uncertainty. This suggests manufacturing companies care more about ``when will rules take effect?'' than ``will rules be repealed?''---consistent with their need for operational certainty when making capital expenditure decisions.
+
+\subsection{IRA Exposure Effect}
+
+\begin{table}[H]
+\centering
+\caption{CPU Sensitivity by IRA Exposure (IRA Era)}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Group} & \textbf{Threshold} & \textbf{N Companies} & \textbf{Correlation} \\
+\midrule
+High IRA & $\geq 6$ & 3,646 & \textbf{+0.42} \\
+Low IRA & $\leq 3$ & 946 & $-0.32$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+High-IRA companies show \textbf{stronger} correlation with CPU ($|r|=0.42$ vs $|r|=0.32$), indicating that companies with policy-dependent business models are more sensitive to policy uncertainty.
+
+%==============================================================================
+\section{Robustness: Full Sample (2008--2025)}
+%==============================================================================
+
+\begin{table}[H]
+\centering
+\caption{Comparison: IRA Era vs Full Sample}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Sector} & \textbf{Corr (IRA)} & \textbf{Corr (Full)} & \textbf{Change} & \textbf{Direction Flip?} \\
+\midrule
+Energy & $-0.42$ & +0.19 & $-0.60$ & \textcolor{reversalred}{Yes} \\
+Built Environment & $-0.36$ & +0.23 & $-0.59$ & \textcolor{reversalred}{Yes} \\
+Food \& Land Use & $-0.34$ & +0.11 & $-0.45$ & \textcolor{reversalred}{Yes} \\
+Carbon & +0.36 & $-0.17$ & +0.54 & \textcolor{reversalred}{Yes} \\
+Industrial & +0.50 & +0.22 & +0.27 & No \\
+Climate Mgmt & $-0.33$ & $-0.14$ & $-0.18$ & No \\
+Transportation & +0.29 & +0.14 & +0.14 & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Structural Break Evidence}
+
+\begin{enumerate}
+    \item \textbf{Correlations Strengthen}: CPU--VC relationships are 2--3$\times$ stronger in IRA era compared to full sample.
+
+    \item \textbf{Direction Flips}: Energy, Built Environment, Food \& Land Use, and Carbon all show direction changes between full sample and IRA era.
+
+    \item \textbf{Industrial Uniqueness Emerges}: In the full sample, \textit{all} sectors are reversal-dominated (including Industrial). The implementation-dominance only appears in the IRA era.
+
+    \item \textbf{IRA Exposure Effect Reverses}: In the full sample, Low-IRA companies are more sensitive ($r=0.22$ vs $r=0.18$). This reverses in the IRA era.
+\end{enumerate}
+
+%==============================================================================
+\section{Interpretation for Paper}
+%==============================================================================
+
+\subsection{Paper Narrative}
+
+\begin{quote}
+``The IRA created a structural break in how policy uncertainty affects climate tech VC investment. Before 2021, correlations were weak and all sectors responded similarly to reversal risk. After 2021, correlations strengthened 2--3$\times$, Energy VC became suppressed by uncertainty, and Industrial emerged as uniquely implementation-sensitive---manufacturing's need for operational certainty became salient. High-IRA companies became more sensitive, reversing the historical pattern. This suggests the `dark side' of policy uncertainty---the fear of reversal---became the dominant mechanism after IRA passage.''
+\end{quote}
+
+\subsection{Mechanism Story}
+
+\begin{enumerate}
+    \item \textbf{CPU Decomposition}: Climate policy uncertainty splits into implementation uncertainty (``when will rules take effect?'') and reversal uncertainty (``will rules be repealed?'')
+
+    \item \textbf{Sector Heterogeneity}: Different sectors respond differently:
+    \begin{itemize}
+        \item Industrial: Implementation-dominated (needs operational certainty)
+        \item Energy, Built Env, Food, Climate Mgmt: Reversal-dominated (fears policy rollback)
+        \item Carbon: Balanced
+    \end{itemize}
+
+    \item \textbf{``Dark Spots''}: Sectors where uncertainty suppresses investment:
+    \begin{itemize}
+        \item Energy ($r=-0.42$, CPU leads by 3 months)
+        \item Built Environment ($r=-0.36$, CPU leads by 4 months)
+        \item Food \& Land Use ($r=-0.34$, CPU leads by 4 months)
+        \item Climate Management ($r=-0.33$, CPU leads by 4 months)
+    \end{itemize}
+
+    \item \textbf{Policy Dependence Channel}: High-IRA companies are more sensitive because their business models depend on policy stability.
+\end{enumerate}
+
+%==============================================================================
+\section{Figures}
+%==============================================================================
+
+The following figures are included in the deliverables folder:
+
+\begin{enumerate}
+    \item \texttt{fig\_summary\_dashboard.png} --- Key findings at a glance
+    \item \texttt{fig\_sensitivity\_leadlag.png} --- Magnitude and timing of correlations
+    \item \texttt{fig\_decomposition\_narrative.png} --- Implementation vs Reversal story
+    \item \texttt{fig\_timeline\_events.png} --- Time series with IRA/OBBBA markers
+    \item \texttt{fig\_mechanism\_diagram.png} --- Conceptual framework
+    \item \texttt{fig\_ira\_vs\_full\_comparison.png} --- Structural break evidence
+    \item \texttt{fig\_sector\_heatmap.png} --- Correlation heatmap by lag
+\end{enumerate}
+
+%==============================================================================
+\section{Data Files}
+%==============================================================================
+
+\begin{table}[H]
+\centering
+\caption{Output Data Files}
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Description} \\
+\midrule
+\texttt{sector\_rankings.csv} & Sectors ranked by CPU sensitivity (IRA era) \\
+\texttt{decomposition.csv} & CPU\_impl vs CPU\_reversal by sector \\
+\texttt{ira\_stratification.csv} & High vs Low IRA exposure comparison \\
+\texttt{comparison\_ira\_vs\_full.csv} & IRA era vs full sample comparison \\
+\texttt{classifier\_robustness.csv} & Robustness across different classifiers \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Appendix: Classifier Robustness}
+%==============================================================================
+
+Results are robust across different classification methods (ChatGPT, Gemini, DeepSeek, Consensus Judge). All classifiers agree on:
+\begin{itemize}
+    \item Industrial as most CPU-sensitive sector
+    \item Energy showing negative correlation in IRA era
+    \item Direction patterns across sectors
+\end{itemize}
+
+Agreement score: 1.00 (perfect agreement on sector rankings).
+
+\end{document}

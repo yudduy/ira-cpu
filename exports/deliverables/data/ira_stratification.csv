@@ -1,0 +1,3 @@
+group,threshold,n_companies,correlation,optimal_lag
+high_ira,>=6,3646,0.4194377403791894,-7
+low_ira,<=3,946,-0.31964044156033805,-8

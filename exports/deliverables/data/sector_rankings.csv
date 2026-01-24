@@ -1,0 +1,8 @@
+sector,optimal_lag,correlation,abs_correlation,direction,n_observations,interpretation
+Industrial,-7,0.4968224641785287,0.4968224641785287,positive,53,"Industrial: VC leads CPU by 7 months, r=0.497 (positive)"
+Energy,3,-0.4188917319657246,0.4188917319657246,negative,53,"Energy: CPU leads VC by 3 months, r=-0.419 (negative)"
+Carbon,-7,0.36355994553517906,0.36355994553517906,positive,53,"Carbon: VC leads CPU by 7 months, r=0.364 (positive)"
+Built_Environment,4,-0.3569557441360746,0.3569557441360746,negative,53,"Built_Environment: CPU leads VC by 4 months, r=-0.357 (negative)"
+Food_Land_Use,4,-0.33713964154364645,0.33713964154364645,negative,53,"Food_Land_Use: CPU leads VC by 4 months, r=-0.337 (negative)"
+Climate_Mgmt,4,-0.32630502883928547,0.32630502883928547,negative,53,"Climate_Mgmt: CPU leads VC by 4 months, r=-0.326 (negative)"
+Transportation,-7,0.28629284425431095,0.28629284425431095,positive,53,"Transportation: VC leads CPU by 7 months, r=0.286 (positive)"
