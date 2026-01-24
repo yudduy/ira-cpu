@@ -6,16 +6,11 @@ Integration tests require a running PostgreSQL instance (docker-compose up).
 """
 
 import os
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import db_postgres
+from cpu_index import db_postgres
 
 
 class TestConnectionManagement:

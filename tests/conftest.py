@@ -14,9 +14,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add project root to path for imports
+# Add src to path for package imports
 PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+SRC_ROOT = PROJECT_ROOT / "src"
+sys.path.insert(0, str(SRC_ROOT))
 
 
 # =============================================================================

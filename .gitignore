@@ -2,13 +2,26 @@
 .env
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Data (too large for git)
-data/cpu.db
-data/exports/
+# Data (large files, collected locally)
+data/
+*.csv
+!.env.example
 
 # Generated outputs
 outputs/
+exports_*/
+*.zip
+
+# Testing & Coverage
+.coverage
+.coverage.*
+coverage_html/
+htmlcov/
+.pytest_cache/
+.tox/
 
 # Docker
 postgres_data/
@@ -16,10 +29,14 @@ postgres_data/
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Plans and specs (local only)
+# Documentation (local working docs)
 docs/plans/
 docs/specs/
+docs/research/
 
-# Context directory
+# Claude Code working files
+.claude/
 .context/

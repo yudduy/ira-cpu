@@ -4,15 +4,9 @@ Tests for config.py - Configuration validation
 Verifies all required constants exist and have correct types.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import config
+from cpu_index import config
 
 
 class TestDateConfiguration:
