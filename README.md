@@ -16,7 +16,7 @@ cp .env.example .env
 # Edit .env with your LexisNexis and OpenAI credentials
 
 # 4. Run the interactive tool
-python run.py
+PYTHONPATH=src python src/cpu_index/cli/run.py
 ```
 
 ## Research Motivation
@@ -188,23 +188,43 @@ The index should respond appropriately to known policy events:
 
 ---
 
-## Files
+## Project Structure
 
-| File | Purpose |
-|------|---------|
-| `config.py` | Keywords, dates, sources, settings |
-| `run.py` | Interactive menu (main entry point) |
-| `api.py` | LexisNexis API client |
-| `collector.py` | Data collection pipeline |
-| `local_classifier.py` | Keyword-based article classification |
-| `indexer.py` | CPU index calculation |
-| `normalizer.py` | BBD-style normalization |
-| `llm_validator.py` | LLM validation pipeline |
-| `ablation_config.py` | Ablation test definitions |
-| `ablation_runner.py` | Ablation test execution |
-| `db_postgres.py` | PostgreSQL database operations |
-| `visualizations.py` | Chart generation |
-| `report_generator.py` | Full report generation |
+```
+src/cpu_index/
+├── config.py              # Keywords, dates, sources, settings
+├── db_postgres.py         # PostgreSQL database operations
+├── collection/            # LexisNexis API client & data collection
+├── classification/        # Keyword-based + LLM article classification
+├── analysis/              # Index calculation, normalization, correlation
+├── output/                # CSV exports, visualizations, reports
+└── cli/run.py             # Interactive menu (main entry point)
+
+scripts/                   # Standalone scripts (no DB required)
+├── collect_cpu_data.py    # Direct API collection to CSV
+├── run_cpu_vc_analysis.py # CPU-VC correlation analysis
+├── run_sector_cpu_analysis.py  # Sector-specific analysis
+├── generate_sector_figures.py  # Sector visualizations
+├── compare_ira_vs_full.py # IRA era vs full sample comparison
+└── generate_publication_figures.py  # Publication figures
+
+exports/deliverables/      # Paper-ready outputs (figures, data, LaTeX)
+```
+
+---
+
+## Current Results & Deliverables
+
+See `exports/deliverables/` for paper-ready outputs:
+- **LaTeX synopsis**: `sector_analysis_synopsis.tex`
+- **Figures** (300 DPI PNGs): heatmap, timeseries, decomposition, mechanism diagrams
+- **Data CSVs**: sector rankings, decomposition, IRA stratification, robustness checks
+
+Key findings from sector-specific CPU-VC correlation analysis:
+1. **Industrial** is the only sector dominated by implementation uncertainty
+2. **Energy, Built Env, Food, Climate Mgmt** show CPU→VC suppression ("dark spots")
+3. **IRA era (2021+)** correlations are 2-3x stronger than full sample (structural break)
+4. **High-IRA companies** more sensitive to CPU in IRA era
 
 ---
 
