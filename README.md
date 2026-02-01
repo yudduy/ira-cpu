@@ -59,22 +59,6 @@ An article counts toward the CPU **numerator** only if it contains terms from AL
 
 The **denominator** requires only climate AND policy terms (total climate policy coverage).
 
-### Addressing Steve's Critique: Direction ≠ Uncertainty
-
-**The Problem:**
-> "You can imagine that it might be very certain that Trump is going to roll back the legislation. So 'rollback' or 'terminate' or 'rescind'... could be associated with there's a very certain rollback that's going to happen."
-
-**The Solution:**
-Direction terms (rollback, expand, repeal, etc.) **alone do NOT indicate uncertainty**. They must be combined WITH uncertainty terms:
-
-```python
-# WRONG: Direction term alone
-"Trump will rollback IRA"  # This is CERTAIN, not uncertain
-
-# CORRECT: Direction + Uncertainty
-"Uncertainty about whether Trump will rollback IRA"  # This IS uncertainty
-```
-
 **Implementation:**
 ```python
 is_cpu_reversal = has_uncertainty_term AND has_reversal_terms
