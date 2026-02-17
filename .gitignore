@@ -5,9 +5,10 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Data (large files, collected locally)
-data/
+# Data (tracked for collaborator access; Deals too large for GitHub)
 *.csv
+!data/*.csv
+data/ClimateTech_Deals.csv
 !.env.example
 
 # Generated outputs (temporary)
