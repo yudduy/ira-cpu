@@ -1,0 +1,29 @@
+classifier,sector,correlation,optimal_lag
+Consensus (Judge),Built_Environment,0.22941785751827753,-1
+Consensus (Judge),Industrial,0.22363688861840222,-1
+Consensus (Judge),Energy,0.18587465555717642,-10
+Consensus (Judge),Carbon,-0.1742305606337613,4
+Consensus (Judge),Climate_Mgmt,-0.14336340658944643,4
+Consensus (Judge),Transportation,0.1419119337308254,-10
+Consensus (Judge),Food_Land_Use,0.11334060574396394,-4
+ChatGPT,Industrial,0.2282667657411428,-1
+ChatGPT,Built_Environment,0.21222500981924233,-1
+ChatGPT,Energy,0.18622554135506916,-10
+ChatGPT,Carbon,-0.1699370851788099,4
+ChatGPT,Climate_Mgmt,-0.13795491596188875,4
+ChatGPT,Transportation,-0.130981234726504,4
+ChatGPT,Food_Land_Use,0.1045777017130087,-1
+Gemini,Industrial,0.21998986424435843,-1
+Gemini,Built_Environment,0.2195690868143371,-1
+Gemini,Energy,0.17786011614369232,-10
+Gemini,Carbon,-0.1574889854720634,4
+Gemini,Transportation,0.1466073034914282,-10
+Gemini,Climate_Mgmt,-0.13287645731769426,4
+Gemini,Food_Land_Use,0.11383173002908922,-1
+DeepSeek,Built_Environment,0.24014763504686257,-4
+DeepSeek,Industrial,0.2332295680402643,-4
+DeepSeek,Energy,0.1918381578899513,-1
+DeepSeek,Food_Land_Use,0.18339483531300507,-7
+DeepSeek,Carbon,0.12359364810584608,-10
+DeepSeek,Transportation,0.1135272974903991,10
+DeepSeek,Climate_Mgmt,-0.10578084261417738,4
